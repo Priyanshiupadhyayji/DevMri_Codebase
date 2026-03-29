@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>DevMRI DX Score</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      width: 380px;
+      background: #040608;
+      background-image: 
+        linear-gradient(rgba(0, 229, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 229, 255, 0.02) 1px, transparent 1px);
+      background-size: 20px 20px;
+      color: #e8edf4;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(0, 229, 255, 0.1);
+      background: linear-gradient(180deg, rgba(0,229,255,0.06) 0%, transparent 100%);
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .logo-box {
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, #00e5ff, #00e676);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+    }
+    .header h1 { font-size: 14px; font-weight: 800; color: #e8edf4; letter-spacing: 0.5px; }
+    .header h1 span { color: #00e5ff; }
+    .header-tag { font-size: 9px; color: #00e5ff; background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.2); padding: 2px 8px; border-radius: 10px; font-weight: 700; letter-spacing: 0.5px; }
+
+    /* Loading */
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 0; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 2px solid rgba(0,229,255,0.1);
+      border-top-color: #00e5ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading p { color: #556677; margin-top: 14px; font-size: 11px; font-family: monospace; letter-spacing: 0.5px; }
+
+    /* Score display */
+    .score-panel { padding: 24px 20px; text-align: center; }
+    .repo-name { font-size: 13px; font-weight: 700; color: #8899aa; margin-bottom: 20px; letter-spacing: 0.3px; }
+    
+    .score-ring { position: relative; width: 140px; height: 140px; margin: 0 auto 20px; }
+    .score-ring svg { width: 140px; height: 140px; }
+    .score-ring .score-value {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+    }
+    .score-number { font-size: 42px; font-weight: 900; line-height: 1; font-family: 'SF Mono', 'Consolas', monospace; }
+    .score-label { font-size: 9px; color: #556677; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px; font-weight: 600; }
+
+    .badges-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; }
+    .badge {
+      padding: 4px 12px; border-radius: 6px;
+      font-weight: 800; font-size: 11px;
+      border: 1px solid;
+    }
+
+    /* Module bars */
+    .modules { padding: 0 20px 16px; }
+    .module-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .module-icon { font-size: 12px; width: 18px; text-align: center; }
+    .module-name { font-size: 10px; color: #8899aa; width: 70px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+    .module-bar { flex: 1; height: 6px; background: #111822; border-radius: 3px; overflow: hidden; }
+    .module-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+    .module-score { font-size: 12px; font-weight: 800; width: 28px; text-align: right; font-family: monospace; }
+
+    /* Cost section */
+    .cost-section {
+      margin: 0 20px 16px;
+      padding: 14px 16px;
+      background: rgba(255,171,0,0.05);
+      border: 1px solid rgba(255,171,0,0.15);
+      border-radius: 10px;
+    }
+    .cost-label { font-size: 9px; color: #ffab00; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; margin-bottom: 4px; }
+    .cost-value { font-size: 22px; font-weight: 900; font-family: monospace; background: linear-gradient(135deg, #ffab00, #ff6d00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .cost-annual { font-size: 10px; color: #556677; margin-top: 2px; }
+
+    /* Findings */
+    .findings { padding: 0 20px 16px; }
+    .finding {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      font-size: 11px; color: #aabbcc;
+    }
+    .finding-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+
+    /* Actions */
+    .actions { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 8px; }
+    .btn-primary {
+      display: block; text-align: center;
+      background: linear-gradient(135deg, #00e5ff, #00e676);
+      color: #000; font-weight: 800; font-size: 12px;
+      padding: 12px; border: none; border-radius: 8px;
+      cursor: pointer; text-decoration: none;
+      letter-spacing: 0.3px;
+      transition: all 0.2s;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(0,229,255,0.3); }
+    .btn-row { display: flex; gap: 8px; }
+    .btn-secondary {
+      flex: 1; text-align: center;
+      background: transparent; color: #8899aa;
+      border: 1px solid #1a2332; padding: 10px;
+      border-radius: 8px; cursor: pointer;
+      font-size: 11px; font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { border-color: #00e5ff; color: #00e5ff; }
+
+    /* Error state */
+    .error-panel { padding: 40px 20px; text-align: center; }
+    .error-icon { font-size: 40px; margin-bottom: 16px; opacity: 0.8; }
+    .error-title { color: #ff6d00; font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+    .error-msg { color: #8899aa; font-size: 12px; line-height: 1.5; margin-bottom: 20px; }
+
+    /* Settings */
+    .settings-panel { padding: 20px; }
+    .settings-title { font-size: 12px; font-weight: 700; margin-bottom: 16px; color: #00e5ff; text-transform: uppercase; letter-spacing: 1px; }
+    .settings-label { font-size: 11px; color: #8899aa; margin-bottom: 6px; display: block; font-weight: 600; }
+    .settings-input {
+      width: 100%; background: #070a0e; border: 1px solid #1a2332;
+      border-radius: 8px; color: white; padding: 10px 12px;
+      font-size: 12px; margin-bottom: 14px; font-family: monospace;
+    }
+    .settings-input:focus { outline: none; border-color: #00e5ff; }
+    .settings-hint { font-size: 10px; color: #334455; margin-top: -10px; margin-bottom: 14px; }
+
+    /* Footer */
+    .footer {
+      padding: 10px 18px;
+      border-top: 1px solid rgba(255,255,255,0.03);
+      font-size: 9px; color: #334455;
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(0,0,0,0.3);
+    }
+    .footer a { color: #00e5ff; text-decoration: none; font-weight: 600; }
+    .footer a:hover { text-decoration: underline; }
+
+    /* Cache indicator */
+    .cache-dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+    /* Pulse animation for score */
+    @keyframes scorePulse {
+      0%, 100% { filter: drop-shadow(0 0 6px currentColor); }
+      50% { filter: drop-shadow(0 0 12px currentColor); }
+    }
+    .score-number { animation: scorePulse 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <div class="logo-box">🩻</div>
+      <h1>Dev<span>MRI</span></h1>
+    </div>
+    <span class="header-tag">CLINICAL v1.0</span>
+  </div>
+  
+  <div id="content">
+    <div class="loading">
+      <div class="spinner"></div>
+      <p>> CALIBRATING MRI SCANNER...</p>
+    </div>
+  </div>
+
+  <div id="settings-panel" class="settings-panel" style="display: none;">
+    <div class="settings-title">⚙️ Configuration</div>
+    
+    <label class="settings-label">GitHub Access Token</label>
+    <input type="password" id="tokenInput" class="settings-input" placeholder="ghp_xxxxxxxxxxxx">
+    <div class="settings-hint">Increases rate limit from 60 to 5000 req/hr</div>
+
+    <label class="settings-label">DevMRI Server URL</label>
+    <input type="text" id="serverInput" class="settings-input" placeholder="https://devmri.vercel.app">
+    <div class="settings-hint">Default: production server</div>
+
+    <div class="btn-row">
+      <button id="saveSettings" class="btn-primary" style="flex: 1;">Save Protocol</button>
+      <button id="cancelSettings" class="btn-secondary">Cancel</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>🩻 Clinical Diagnostic Engine</span>
+    <div>
+      <a href="https://github.com/urjitupadhya/DEVmri" target="_blank">GitHub</a> · 
+      <a href="#" id="settingsLink">Settings</a>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevMRI Report — expressjs/express</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#040608;color:#e8edf4;font-family:'Inter',sans-serif;line-height:1.6;padding:32px;max-width:900px;margin:0 auto}
+.mono{font-family:'JetBrains Mono',monospace}
+h1{font-size:2.5rem;font-weight:900;margin-bottom:8px}
+h2{font-size:1.5rem;margin:32px 0 16px;color:#00e5ff}
+h3{font-size:1.1rem;margin:16px 0 8px}
+.card{background:rgba(10,14,20,0.7);border:1px solid rgba(0,229,255,0.08);border-radius:16px;padding:24px;margin-bottom:16px}
+.score{font-size:5rem;font-weight:900;font-family:'JetBrains Mono',monospace;color:#ffab00;line-height:1}
+.grade{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:12px;font-size:1.5rem;font-weight:900;border:2px solid #ffab00;color:#ffab00;background:#ffab0022}
+.cost{font-size:2.5rem;font-weight:700;font-family:'JetBrains Mono',monospace;background:linear-gradient(135deg,#ffab00,#ff1744);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.metric{text-align:center;padding:16px;background:rgba(10,14,20,0.7);border:1px solid rgba(0,229,255,0.08);border-radius:12px}
+.metric-value{font-size:1.8rem;font-weight:700;font-family:'JetBrains Mono',monospace}
+.metric-label{font-size:0.7rem;color:#8899aa;text-transform:uppercase;letter-spacing:0.1em}
+.bar{height:8px;background:#111822;border-radius:4px;overflow:hidden;margin:4px 0}
+.bar-fill{height:100%;border-radius:4px}
+.badge{display:inline-flex;padding:3px 10px;border-radius:20px;font-size:0.7rem;font-weight:600;text-transform:uppercase}
+.badge-critical{background:rgba(255,23,68,0.15);color:#ff1744;border:1px solid rgba(255,23,68,0.3)}
+.badge-high{background:rgba(255,109,0,0.15);color:#ff6d00;border:1px solid rgba(255,109,0,0.3)}
+.badge-medium{background:rgba(255,171,0,0.15);color:#ffab00;border:1px solid rgba(255,171,0,0.3)}
+.badge-low{background:rgba(0,230,118,0.15);color:#00e676;border:1px solid rgba(0,230,118,0.3)}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid rgba(0,229,255,0.06);font-size:0.85rem}
+th{color:#8899aa;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em}
+.dim{color:#556677}
+.footer{text-align:center;margin-top:48px;padding:24px;border-top:1px solid rgba(0,229,255,0.06);color:#334455;font-size:0.75rem}
+@media(max-width:768px){.grid{grid-template-columns:1fr}.score{font-size:3rem}}
+</style>
+</head>
+<body>
+<div style="margin-bottom:32px">
+<h1>🩻 Dev<span style="color:#00e5ff">MRI</span> Report</h1>
+<p class="dim mono" style="font-size:0.85rem">expressjs/express · Generated 19/3/2026</p>
+</div>
+
+<div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+<div>
+<p class="dim" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em">DX Score</p>
+<div class="score">70</div>
+<div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+  <div class="grade">C</div>
+  <p style="font-size:0.85rem;color:#00e676;font-weight:600">Top 36% of Engineering Teams</p>
+</div>
+</div>
+<div style="text-align:right">
+<p class="dim" style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em">Monthly Friction Cost</p>
+<div class="cost">$10,909/mo</div>
+<p class="dim mono" style="font-size:0.85rem">$1,30,908/year</p>
+</div>
+</div>
+
+<h2>Module Scores</h2>
+<div class="grid">
+
+<div class="metric">
+<p class="metric-label">🔴 CI/CD</p>
+<p class="metric-value" style="color:#ff1744">59</p>
+<div class="bar"><div class="bar-fill" style="width:59%;background:#ff1744"></div></div>
+<p class="mono dim" style="font-size:0.8rem">$0/mo</p>
+</div>
+
+<div class="metric">
+<p class="metric-label">🟡 Documentation</p>
+<p class="metric-value" style="color:#00e5ff">95</p>
+<div class="bar"><div class="bar-fill" style="width:95%;background:#00e5ff"></div></div>
+<p class="mono dim" style="font-size:0.8rem">$0/mo</p>
+</div>
+
+<div class="metric">
+<p class="metric-label">🔵 Reviews</p>
+<p class="metric-value" style="color:#ff1744">53</p>
+<div class="bar"><div class="bar-fill" style="width:53%;background:#ff1744"></div></div>
+<p class="mono dim" style="font-size:0.8rem">$10,571/mo</p>
+</div>
+
+<div class="metric">
+<p class="metric-label">🟢 Dependencies</p>
+<p class="metric-value" style="color:#00e5ff">90</p>
+<div class="bar"><div class="bar-fill" style="width:90%;background:#00e5ff"></div></div>
+<p class="mono dim" style="font-size:0.8rem">$338/mo</p>
+</div>
+
+</div>
+
+
+<h2>🔴 CI/CD Pipeline</h2>
+<div class="grid">
+<div class="metric"><p class="metric-label">Avg Duration</p><p class="metric-value" style="color:#00e5ff">1.7m</p></div>
+<div class="metric"><p class="metric-label">Success Rate</p><p class="metric-value" style="color:#00e676">83.8%</p></div>
+<div class="metric"><p class="metric-label">Flaky Rate</p><p class="metric-value" style="color:#ff1744">27.8%</p></div>
+</div>
+
+
+
+
+<h2>🟡 Code Review</h2>
+<div class="grid">
+<div class="metric"><p class="metric-label">Median Review Time</p><p class="metric-value">205.2h</p></div>
+<div class="metric"><p class="metric-label">XL PR Rate</p><p class="metric-value" style="color:#e8edf4">0%</p></div>
+<div class="metric"><p class="metric-label">Stale PRs</p><p class="metric-value" style="color:#ff1744">46</p></div>
+</div>
+
+
+
+<h2>🟢 Dependencies</h2>
+<div class="grid" style="grid-template-columns:repeat(4,1fr)">
+<div class="metric"><p class="metric-label">Critical</p><p class="metric-value" style="color:#ff1744">0</p></div>
+<div class="metric"><p class="metric-label">High</p><p class="metric-value" style="color:#ff6d00">0</p></div>
+<div class="metric"><p class="metric-label">Medium</p><p class="metric-value" style="color:#ffab00">0</p></div>
+<div class="metric"><p class="metric-label">Low</p><p class="metric-value" style="color:#00e676">0</p></div>
+</div>
+
+
+
+<h2>💰 Friction Cost Breakdown</h2>
+<table>
+<tr><th>Category</th><th>Monthly Cost</th><th>Hours Wasted</th><th>Details</th></tr>
+<tr><td>🔴 CI/CD Wait Time</td><td class="mono" style="color:#ffab00">$0</td><td class="mono">0h</td><td class="dim">Pipeline delays × daily runs</td></tr>
+<tr><td>🟡 Review Delays</td><td class="mono" style="color:#ffab00">$221</td><td class="mono">3h</td><td class="dim">Context switching cost</td></tr>
+<tr><td>⏰ Stale PR Rework</td><td class="mono" style="color:#ffab00">$10,350</td><td class="mono">138h</td><td class="dim">Conflict resolution</td></tr>
+<tr><td>🛡️ Vulnerabilities</td><td class="mono" style="color:#ffab00">$0</td><td></td><td class="dim">Risk exposure cost</td></tr>
+<tr><td>📦 Outdated Deps</td><td class="mono" style="color:#ffab00">$338</td><td class="mono">5h</td><td class="dim">Maintenance burden</td></tr>
+<tr style="border-top:2px solid rgba(0,229,255,0.15)"><td><strong>Total</strong></td><td class="mono" style="color:#ff6d00;font-weight:700;font-size:1.1rem">$10,909</td><td></td><td></td></tr>
+</table>
+<p class="dim" style="font-size:0.7rem;margin-top:8px">Assumptions: $75/hr developer rate · Team size estimated from contributor count · 22 work days/month</p>
+
+
+
+
+
+<div class="footer">
+<p>🩻 DevMRI — Developer Experience Diagnostic Platform</p>
+<p style="margin-top:4px">Generated by <a href="https://devmri.app" style="color:#00e5ff">devmri.app</a></p>
+</div>
+</body></html>

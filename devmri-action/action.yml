@@ -1,0 +1,152 @@
+name: 'DevMRI DX Scanner'
+description: 'Automatically scan PRs and repos with DevMRI. Comments DX Score, grade, friction cost, and AI recommendations on every PR.'
+author: 'DevMRI'
+branding:
+  icon: activity
+  color: blue
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access and PR commenting'
+    required: true
+    default: ${{ github.token }}
+  gemini-api-key:
+    description: 'Google Gemini API Key for AI-powered recommendations (optional)'
+    required: false
+  scan-mode:
+    description: 'Scan mode: "pr" (comment on PR) or "full" (full repo scan)'
+    default: 'pr'
+  fail-threshold:
+    description: 'If DX Score is below this value, the action will fail. Set to 0 to disable.'
+    default: '0'
+  comment-style:
+    description: 'Comment style: "full" (detailed table) or "compact" (summary badge)'
+    default: 'full'
+  slack-webhook-url:
+    description: 'Slack Incoming Webhook URL for posting DX reports (optional)'
+    required: false
+
+outputs:
+  dx-score:
+    description: 'The DX Score (0-100)'
+    value: ${{ steps.scan.outputs.dx-score }}
+  dx-grade:
+    description: 'The DX Grade (A-F)'
+    value: ${{ steps.scan.outputs.dx-grade }}
+  friction-cost:
+    description: 'Estimated monthly friction cost in USD'
+    value: ${{ steps.scan.outputs.friction-cost }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Run DevMRI Scan
+      id: scan
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GEMINI_API_KEY: ${{ inputs.gemini-api-key }}
+      run: |
+        echo "🩻 DevMRI: Initiating Developer Experience Scan..."
+        REPO="${{ github.repository }}"
+        OWNER=$(echo $REPO | cut -d'/' -f1)
+        REPO_NAME=$(echo $REPO | cut -d'/' -f2)
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        SCAN_MODE="${{ inputs.scan-mode }}"
+        THRESHOLD="${{ inputs.fail-threshold }}"
+
+        # Install DevMRI CLI
+        npm install -g devmri@latest 2>/dev/null || true
+
+        # Run the scan and capture JSON output
+        RESULT=$(npx devmri scan "$REPO" --token "$GITHUB_TOKEN" --json --no-report 2>/dev/null || echo '{}')
+
+        # Extract values
+        DX_SCORE=$(echo "$RESULT" | jq -r '.dxScore // 0')
+        DX_GRADE=$(echo "$RESULT" | jq -r '.grade // "?"')
+        FRICTION_COST=$(echo "$RESULT" | jq -r '.frictionCost.total // 0')
+        CI_SCORE=$(echo "$RESULT" | jq -r '.scores.cicd // 0')
+        REVIEW_SCORE=$(echo "$RESULT" | jq -r '.scores.reviews // 0')
+        DEP_SCORE=$(echo "$RESULT" | jq -r '.scores.deps // 0')
+        DOC_SCORE=$(echo "$RESULT" | jq -r '.scores.doc // 0')
+        VULNS=$(echo "$RESULT" | jq -r '.deps.vulnerabilities.total // 0')
+        STALE_PRS=$(echo "$RESULT" | jq -r '.reviews.stalePRs | length // 0')
+        AVG_BUILD=$(echo "$RESULT" | jq -r '.cicd.avgDurationMinutes // 0')
+
+        # Set outputs
+        echo "dx-score=$DX_SCORE" >> $GITHUB_OUTPUT
+        echo "dx-grade=$DX_GRADE" >> $GITHUB_OUTPUT
+        echo "friction-cost=$FRICTION_COST" >> $GITHUB_OUTPUT
+
+        # Determine score color for badge
+        if [ "$DX_SCORE" -ge 80 ]; then BADGE_COLOR="brightgreen"; EMOJI="🟢";
+        elif [ "$DX_SCORE" -ge 60 ]; then BADGE_COLOR="yellow"; EMOJI="🟡";
+        elif [ "$DX_SCORE" -ge 40 ]; then BADGE_COLOR="orange"; EMOJI="🟠";
+        else BADGE_COLOR="red"; EMOJI="🔴"; fi
+
+        # Generate PR comment
+        if [ "$SCAN_MODE" = "pr" ] && [ -n "$PR_NUMBER" ] && [ "${{ inputs.comment-style }}" != "none" ]; then
+          echo "💬 Posting DX Impact Report to PR #$PR_NUMBER..."
+
+          COMMENT_BODY=$(cat <<EOF
+        ## 🩻 DevMRI — DX Impact Report
+
+        $EMOJI **DX Score: $DX_SCORE / 100** (Grade **$DX_GRADE**)
+
+        | Module | Score | Status |
+        |--------|-------|--------|
+        | ⚡ CI/CD Pipeline | $CI_SCORE | $([ "$CI_SCORE" -ge 70 ] && echo "✅ Healthy" || echo "⚠️ Needs Attention") |
+        | 👀 Code Reviews | $REVIEW_SCORE | $([ "$REVIEW_SCORE" -ge 70 ] && echo "✅ Healthy" || echo "⚠️ Needs Attention") |
+        | 📦 Dependencies | $DEP_SCORE | $([ "$DEP_SCORE" -ge 70 ] && echo "✅ Healthy" || echo "⚠️ Needs Attention") |
+        | 📝 Documentation | $DOC_SCORE | $([ "$DOC_SCORE" -ge 70 ] && echo "✅ Healthy" || echo "⚠️ Needs Attention") |
+
+        ### 💰 Friction Cost
+        > **\$$FRICTION_COST/month** in estimated developer productivity waste
+
+        ### Key Findings
+        $([ "$VULNS" -gt 0 ] && echo "- 🛡️ **$VULNS** dependency vulnerabilities detected" || echo "- 🛡️ No vulnerabilities detected ✅")
+        $([ "$STALE_PRS" -gt 3 ] && echo "- ⏰ **$STALE_PRS** stale PRs waiting >7 days" || echo "- ⏰ PR queue is healthy ✅")
+        $(echo "$AVG_BUILD" | awk '{if ($1 > 10) print "- 🐢 Average build time: **" $1 "m** (consider optimization)"; else print "- ⚡ Build time: **" $1 "m** ✅"}')
+
+        ---
+        <sub>🩻 Scanned by <a href="https://github.com/urjitupadhya/DEVmri">DevMRI</a> · DX-Ray Hackathon 2026</sub>
+        EOF
+        )
+
+          # Post comment via GitHub API
+          ESCAPED_BODY=$(echo "$COMMENT_BODY" | jq -Rs .)
+          curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+            -d "{\"body\": $ESCAPED_BODY}" > /dev/null
+
+          echo "✅ DX Impact Report posted to PR #$PR_NUMBER"
+        fi
+
+        # Threshold check
+        if [ "$THRESHOLD" -gt 0 ] && [ "$DX_SCORE" -lt "$THRESHOLD" ]; then
+          echo "❌ DX Score ($DX_SCORE) is below threshold ($THRESHOLD). Failing the check."
+          exit 1
+        fi
+
+        echo "✅ DevMRI scan complete — DX Score: $DX_SCORE (Grade $DX_GRADE)"
+
+    - name: Notify Slack
+      if: always() && inputs.slack-webhook-url != ''
+      shell: bash
+      env:
+        SLACK_WEBHOOK: ${{ inputs.slack-webhook-url }}
+        DX_SCORE: ${{ steps.scan.outputs.dx-score }}
+        DX_GRADE: ${{ steps.scan.outputs.dx-grade }}
+        FRICTION_COST: ${{ steps.scan.outputs.friction-cost }}
+      run: |
+        GRADE_EMOJI=$( [ "$DX_GRADE" = "A" ] && echo "🟢" || [ "$DX_GRADE" = "B" ] && echo "🔵" || [ "$DX_GRADE" = "C" ] && echo "🟡" || [ "$DX_GRADE" = "D" ] && echo "🟠" || echo "🔴" )
+        curl -s -X POST "$SLACK_WEBHOOK" \
+          -H "Content-Type: application/json" \
+          -d "{\"blocks\":[{\"type\":\"header\",\"text\":{\"type\":\"plain_text\",\"text\":\"DevMRI DX Report — ${{ github.repository }}\",\"emoji\":true}},{\"type\":\"divider\"},{\"type\":\"section\",\"fields\":[{\"type\":\"mrkdwn\",\"text\":\"*DX Score*\n${GRADE_EMOJI} *${DX_SCORE}* / 100 (Grade *${DX_GRADE}*)\"},{\"type\":\"mrkdwn\",\"text\":\"*Friction Cost*\n💰 *\$${FRICTION_COST}/mo*\"}]},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Scanned by DevMRI Action\"}]}]}"

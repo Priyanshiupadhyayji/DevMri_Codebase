@@ -1,0 +1,385 @@
+import { FullScanResult } from './types';
+
+export const MOCK_SCAN_RESULT: FullScanResult = {
+  repo: {
+    owner: 'google',
+    repo: 'tensorflow',
+    fullName: 'google/tensorflow',
+    defaultBranch: 'master',
+    language: 'Python',
+    stars: 182000,
+    openIssues: 3400,
+    createdAt: '2015-11-09T00:00:00Z',
+    lastPush: '2026-03-17T00:00:00Z',
+    docStalenessFactor: 25,
+  },
+  cicd: {
+    totalRuns: 450,
+    avgDurationMinutes: 42,
+    successRate: 88,
+    flakyRate: 4,
+    bottleneckStage: { name: 'Unit Tests', avgMinutes: 18, percentage: 40 },
+    stages: [
+      { name: 'Build', avgDurationMinutes: 12, maxDurationMinutes: 15, successRate: 98, percentage: 25, status: 'healthy' },
+      { name: 'Unit Tests', avgDurationMinutes: 18, maxDurationMinutes: 30, successRate: 85, percentage: 40, status: 'bottleneck' },
+      { name: 'Lint', avgDurationMinutes: 4, maxDurationMinutes: 6, successRate: 99, percentage: 10, status: 'healthy' },
+    ],
+    buildTimeTrend: [
+      { runNumber: 1, date: '2024-03-10', durationMinutes: 45, conclusion: 'success' },
+      { runNumber: 2, date: '2024-03-11', durationMinutes: 42, conclusion: 'success' },
+      { runNumber: 3, date: '2024-03-12', durationMinutes: 48, conclusion: 'failure' },
+      { runNumber: 4, date: '2024-03-13', durationMinutes: 40, conclusion: 'success' },
+      { runNumber: 5, date: '2024-03-14', durationMinutes: 38, conclusion: 'success' },
+    ],
+    trendDirection: 'stable',
+    trendSlope: 0,
+    failureHeatmap: Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => Math.floor(Math.random() * 5))),
+    peakFailureHour: 15,
+    peakFailureDay: 'Wednesday',
+    avgDailyRuns: 15,
+    workflowFiles: {},
+  },
+  reviews: {
+    totalPRsAnalyzed: 120,
+    medianReviewTimeHours: 18.5,
+    medianMergeTimeHours: 24.2,
+    prSizeDistribution: { S: 40, M: 50, L: 20, XL: 10 },
+    xlPrPercentage: 8,
+    reviewerLoad: [
+      { login: 'jeffdean', reviewCount: 45, percentage: 38, avgResponseTimeHours: 12 },
+      { login: 'akshay64', reviewCount: 32, percentage: 26, avgResponseTimeHours: 24 },
+    ],
+    giniCoefficient: 0.42,
+    loadBalance: 'uneven',
+    stalePRs: [
+      { number: 65231, title: 'Optimizing gradient descent for TPU v5', author: 'ml-researcher', daysOpen: 42, linesChanged: 1240 },
+      { number: 65112, title: 'Fixing typo in README', author: 'newbie-contributor', daysOpen: 12, linesChanged: 2 },
+    ],
+    stalePrRate: 12,
+    selfMergeRate: 5,
+    avgReviewDepth: 14.5,
+    reviewTimeline: { within2h: 10, within8h: 25, within24h: 40, within48h: 15, beyond48h: 10 },
+    prData: [
+      { number: 65231, title: 'Optimizing gradient descent for TPU v5', linesChanged: 1240, reviewTimeHours: 12, size: 'XL', author: 'ml-researcher' },
+      { number: 65240, title: 'Fix: memory leak in attention head', linesChanged: 420, reviewTimeHours: 8, size: 'M', author: 'tf-guru' },
+      { number: 65245, title: 'Add: new AdamW optimizer variant', linesChanged: 850, reviewTimeHours: 24, size: 'L', author: 'optimizer-wiz' },
+      { number: 65250, title: 'Minor typo in docstrings', linesChanged: 12, reviewTimeHours: 2, size: 'S', author: 'newbie' },
+      { number: 65260, title: 'Refactor: core graph runtime', linesChanged: 1800, reviewTimeHours: 48, size: 'XL', author: 'jeffdean' },
+      { number: 65270, title: 'Feature: custom op registration', linesChanged: 310, reviewTimeHours: 14, size: 'M', author: 'c-dev' },
+      { number: 65280, title: 'Update dependencies to latest stable', linesChanged: 45, reviewTimeHours: 4, size: 'S', author: 'bot-updater' },
+      { number: 65290, title: 'Test: stress test for TPU v4', linesChanged: 110, reviewTimeHours: 6, size: 'M', author: 'tester-prime' },
+      { number: 65300, title: 'Cleanup: move legacy ops to contrib', linesChanged: 600, reviewTimeHours: 20, size: 'L', author: 'cleaner' },
+      { number: 65310, title: 'Security: patch CVE-2024-1234', linesChanged: 8, reviewTimeHours: 1, size: 'S', author: 'sec-patcher' },
+    ],
+  },
+  deps: {
+    ecosystem: 'npm/pip',
+    totalDeps: 342,
+    totalDevDeps: 120,
+    vulnerabilities: { critical: 4, high: 12, medium: 24, low: 5, total: 45 },
+    vulnDetails: [
+      { package: 'numpy', version: '1.21.0', vulnId: 'CVE-2023-1234', severity: 'high', summary: 'Buffer overflow in array reshaping', fixedIn: '1.24.0' },
+      { package: 'tensorflow-gpu', version: '2.8.0', vulnId: 'CVE-2024-5678', severity: 'critical', summary: 'Remote code execution via malformed graph', fixedIn: '2.14.0' },
+    ],
+    outdatedCount: 42,
+    outdatedPercentage: 12,
+    freshness: [
+      { package: 'numpy', installed: '1.21.0', latest: '1.26.0', isOutdated: true, license: 'BSD' },
+    ],
+    licenseRisks: [
+      { package: 'some-lib', license: 'GPL-3.0', risk: 'high' },
+    ],
+    riskyLicenseCount: 1,
+  },
+  dora: {
+    deploymentFrequency: { value: 2.4, unit: 'deploys/day', classification: 'HIGH' },
+    leadTimeForChanges: { medianHours: 18.5, classification: 'HIGH' },
+    changeFailureRate: { percentage: 8, classification: 'ELITE' },
+    meanTimeToRecovery: { medianHours: 4.2, classification: 'ELITE' },
+    overallClassification: 'HIGH',
+  },
+  busFactor: {
+    busFactor: 2,
+    riskLevel: 'critical',
+    topContributors: [
+      { login: 'jeffdean', commits: 12000, percentage: 45 },
+      { login: 'google-bot', commits: 8000, percentage: 30 },
+      { login: 'external-contributor', commits: 2000, percentage: 8 },
+    ],
+    knowledgeSilos: [
+      { directory: 'tensorflow/core/kernels', ownerlogin: 'jeffdean', ownershipPercentage: 92, risk: 'high' },
+      { directory: 'tensorflow/compiler/xla', ownerlogin: 'xla-master', ownershipPercentage: 88, risk: 'high' },
+    ],
+  },
+  heatmap: {
+    hotspots: [
+      { path: 'tensorflow/core/kernels/training_ops.cc', churn: 84, complexity: 950, cost: 1240, risk: 'critical', owner: 'jeffdean' },
+      { path: 'tensorflow/python/layers/convolutional.py', churn: 62, complexity: 420, cost: 840, risk: 'high', owner: 'ml-guru' },
+      { path: 'tensorflow/compiler/xla/service/hlo_parser.cc', churn: 45, complexity: 820, cost: 650, risk: 'medium', owner: 'compiler-wizard' },
+    ],
+    totalChurn: 285,
+  },
+  necrosis: {
+    orphanedFiles: [
+      { path: 'tensorflow/python/legacy/weights.py', lastModified: '420 days ago', daysSinceModified: 420, size: 2400, importCount: 1, severity: 'critical', recommendation: 'Remove deprecated file - causing technical debt and confusion' },
+      { path: 'tensorflow/core/util/deprecated_ops.cc', lastModified: '380 days ago', daysSinceModified: 380, size: 1800, importCount: 2, severity: 'critical', recommendation: 'Archive or migrate legacy code - no longer actively maintained' },
+      { path: 'tensorflow/contrib/legacy/feature_column.py', lastModified: '320 days ago', daysSinceModified: 320, size: 1200, importCount: 1, severity: 'high', recommendation: 'Evaluate if still needed - consider refactoring or removing' },
+    ],
+    totalWastedSize: 5400,
+    riskScore: 65,
+    impactDescription: 'Found 3 potentially orphaned files representing 5.3KB of dead weight.',
+  },
+  security: {
+    branchProtection: true,
+    requireReviews: true,
+    requireStatusChecks: true,
+    hasLicense: true,
+    hasCodeowners: true,
+    hasSecurityPolicy: true,
+    hasContributing: true,
+    communityHealthPct: 95,
+    score: 82,
+  },
+  commitHygiene: {
+    conventionalPct: 42,
+    avgMessageLength: 28,
+    shortMessagePct: 35,
+    prefixDistribution: { feat: 10, fix: 45, docs: 15, chore: 30 },
+    score: 55,
+  },
+  quality: {
+    avgLinesPerFile: 280,
+    totalFiles: 3400,
+    filesOver300LOC: 650,
+    filesOver150LOC: 1200,
+    avgComplexity: 18,
+    complexityDistribution: { low: 800, medium: 1600, high: 700, critical: 300 },
+    hasComplexityGates: false,
+    hasLinterConfig: true,
+    score: 35,
+    healthScore: 42,
+  },
+  flow: {
+    onboardingFrictionScore: 72,
+    hasDockerCompose: false,
+    hasMakefile: false,
+    hasDevConfig: false,
+    setupTimeEstimateMinutes: 360,
+    prReviewSLA: null,
+    asyncReviewSupport: false,
+    autoAssignReviewers: false,
+    prSizeLimits: false,
+    medianReviewTimeHours: 30,
+    score: 28,
+  },
+  environment: {
+    hasNvmrc: false,
+    hasNodeVersionFile: false,
+    hasEnvExample: true,
+    hasLockFile: true,
+    hasDockerfile: false,
+    hasDockerCompose: false,
+    environmentDriftRisk: 'medium',
+    reproducibilityScore: 45,
+    requiredEnvVars: ['PYTHON_PATH', 'CUDA_PATH', 'BAZEL_PATH'],
+    envVarsDocumented: false,
+    ciEnvironmentConsistent: true,
+    recommendations: [
+      'Add .nvmrc for Python version management',
+      'Create docker-compose for local dev environment',
+      'Document CI environment variables in README'
+    ],
+    score: 38,
+  },
+  scores: {
+    cicd: 35,
+    reviews: 42,
+    deps: 50,
+    security: 62,
+    commitHygiene: 35,
+    busFactor: 20,
+    quality: 35,
+    flow: 28,
+    environment: 38,
+  },
+  dxScore: 43,
+  grade: 'C',
+  percentile: 22,
+  frictionCost: {
+    total: 18700,
+    annualProjection: 224400,
+    ciBottleneck: { cost: 4200, hoursWasted: 56, description: 'Long wait times on GPU test suite' },
+    reviewDelay: { cost: 8400, hoursWasted: 112, description: 'Median PR latency is above industry standards' },
+    stalePRs: { cost: 2100, hoursWasted: 28, description: '14 stale PRs representing lost investment' },
+    vulnerabilities: { cost: 3500, hoursWasted: 48, description: 'Security dept resulting from 4 critical vulnerabilities', riskExposure: 85000 },
+    outdatedDeps: { cost: 500, hoursWasted: 8, description: 'Minor overhead from outdated utility libraries' },
+    docStaleness: { cost: 0, hoursWasted: 0, description: '' },
+  },
+  correlations: [
+    { type: 'reinforcing_loop', signals: ['CI Failures', 'Review Latency'], description: 'Failed builds increase PR review cycles as developers push fixes to rerun CI.', breakPoint: 'Parallelize GPU tests', compoundImpact: 42, confidence: 0.88 },
+  ],
+  simulation: [
+    { fixType: 'parallel_ci', title: 'Parallelize CI Pipelines', originalDxScore: 43, projectedDxScore: 57, scoreChange: 14, originalGrade: 'C', projectedGrade: 'B', monthlySavings: 4200 },
+    { fixType: 'review_slas', title: 'Implement 24h Review SLA', originalDxScore: 57, projectedDxScore: 68, scoreChange: 11, originalGrade: 'B', projectedGrade: 'A', monthlySavings: 8400 },
+    { fixType: 'complexity_gates', title: 'Code Complexity Gates', originalDxScore: 68, projectedDxScore: 76, scoreChange: 8, originalGrade: 'B', projectedGrade: 'A', monthlySavings: 3500 },
+    { fixType: 'setup_automation', title: 'Setup & Onboarding Automation', originalDxScore: 76, projectedDxScore: 81, scoreChange: 5, originalGrade: 'A', projectedGrade: 'A', monthlySavings: 2100 },
+    { fixType: 'env_reproducibility', title: 'Environment Reproducibility', originalDxScore: 81, projectedDxScore: 85, scoreChange: 4, originalGrade: 'A', projectedGrade: 'A', monthlySavings: 1200 },
+  ],
+  aiDiagnosis: {
+    recommendations: [
+      { 
+        severity: 'CRITICAL', 
+        title: 'Parallelize GPU Test Suite', 
+        description: 'Tests are currently sequential, taking 42 minutes. Moving to parallel execution would save 30 minutes per run.', 
+        codeExample: 'matrix:\n  strategy:\n    matrix:\n      shard: [1, 2, 3, 4]\n  jobs:\n    test:\n      run: npm test -- --shard=${{ matrix.shard }}/4',
+        metric: 'CI Duration',
+        currentValue: '42m',
+        frictionCost: 4200,
+        projectedScoreChange: 14,
+        verificationMetric: 'Avg Pipeline Duration'
+      },
+      { 
+        severity: 'HIGH', 
+        title: 'Break the CI↔Review Friction Loop', 
+        description: 'Slow CI (42m) is causing developers to skip reviews or rush them fearing a 1-hour re-run delay. This creates a critical "Broken Window" effect in code quality.', 
+        codeExample: null,
+        metric: 'Review Latency',
+        currentValue: '30h',
+        frictionCost: 8400,
+        projectedScoreChange: 11,
+        verificationMetric: 'Median Review Time'
+      },
+      { 
+        severity: 'HIGH', 
+        title: 'Add Automated Complexity Gates', 
+        description: '300 files have "Critical" cyclomatic complexity (>30). No automated gates are preventing this debt from entering master.', 
+        codeExample: '{\n  "rules": {\n    "complexity": ["error", 20]\n  }\n}',
+        metric: 'Code Health',
+        currentValue: '42/100',
+        frictionCost: 3500,
+        projectedScoreChange: 8,
+        verificationMetric: 'Files over threshold'
+      },
+      { 
+        severity: 'MEDIUM', 
+        title: 'Implement One-Step Local Setup', 
+        description: 'Onboarding currently takes ~6 hours due to missing environment automation. Developers are manually configuring CUDA and Bazel paths.', 
+        codeExample: 'services:\n  dev:\n    image: tensorflow-dev:latest\n    volumes: [".:/app"]',
+        metric: 'Setup Friction',
+        currentValue: '360m',
+        frictionCost: 2100,
+        projectedScoreChange: 5,
+        verificationMetric: 'Setup Time Estimate'
+      },
+      { 
+        severity: 'MEDIUM', 
+        title: 'Enforce Environment Reproducibility', 
+        description: 'Missing .nvmrc and lockfile drift is causing 15% of CI failures to be environment-related, not code-related.', 
+        codeExample: 'echo "v20.10.0" > .nvmrc',
+        metric: 'Env Integrity',
+        currentValue: '38/100',
+        frictionCost: 1200,
+        projectedScoreChange: 4,
+        verificationMetric: 'Reproducibility Score'
+      }
+    ],
+    recoveryPlan: {
+      currentScore: 43,
+      projectedScore: 85,
+      currentGrade: 'C',
+      projectedGrade: 'A',
+      totalMonthlySavings: 18700,
+      implementationTimeline: '4-6 weeks'
+    },
+    frictionLoops: [
+      { description: 'Broken Build Loop', signals: ['Failed Builds', 'PR Latency'], breakPoint: 'Add pre-commit linting', compoundImpact: 45 }
+    ]
+  },
+  mlForecast: {
+    forecast: Array.from({ length: 30 }, (_, i) => ({
+      date: new Date(Date.now() + (i + 1) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      predicted_score: Math.max(30, 70 - i * 0.5 + Math.random() * 5),
+      lower: Math.max(20, 60 - i * 0.5),
+      upper: Math.min(90, 80 - i * 0.5 + Math.random() * 5),
+    })),
+    mae: 3.2,
+    days_until_grade_d: 45,
+  },
+  predictivePathology: {
+    attritionRisks: [
+      {
+        maintainer: 'johndoe',
+        riskLevel: 'high',
+        knowledgeLossPercentage: 45,
+        filesAtRisk: ['src/core/engine.ts', 'src/lib/api.ts', 'src/utils/transformer.ts'],
+        ownershipPercentage: 38,
+        lastActive: '2026-02-15',
+        daysSinceLastCommit: 33,
+        recommendation: 'Implement pair programming sessions and create documentation for critical modules to reduce bus factor risk.'
+      },
+      {
+        maintainer: 'jane-dev',
+        riskLevel: 'medium',
+        knowledgeLossPercentage: 28,
+        filesAtRisk: ['src/components/UI.tsx'],
+        ownershipPercentage: 25,
+        lastActive: '2026-03-01',
+        daysSinceLastCommit: 19,
+        recommendation: 'Schedule knowledge transfer sessions and add CODEOWNERS to distribute ownership.'
+      }
+    ],
+    hotspotPredictions: [
+      {
+        path: 'src/services/payment-processor.ts',
+        currentChurn: 12,
+        predictedChurn3Months: 28,
+        riskLevel: 'high',
+        churnVelocity: 5.3,
+        complexityTrend: 'increasing',
+        recommendation: 'Refactor into smaller modules. Current churn velocity suggests high maintenance burden in 3 months.'
+      },
+      {
+        path: 'src/lib/auth.ts',
+        currentChurn: 8,
+        predictedChurn3Months: 15,
+        riskLevel: 'medium',
+        churnVelocity: 2.3,
+        complexityTrend: 'stable',
+        recommendation: 'Add comprehensive tests and consider extracting validation logic to reduce future changes.'
+      }
+    ],
+    bottleneckForecasts: [
+      {
+        stageName: 'test-suite',
+        currentAvgMinutes: 8.5,
+        predicted3Months: 18.2,
+        daysUntilThreshold: 65,
+        criticalThreshold: 20,
+        trendDirection: 'worsening',
+        recommendation: 'Parallelize test execution and implement test selection to reduce build times before critical threshold.'
+      }
+    ],
+    deliveryPrognosis: {
+      currentVelocity: 12,
+      predictedVelocity: 9,
+      sprintCompletionDate: '2026-04-15',
+      onTrack: false,
+      confidence: 0.72,
+      factors: [
+        { name: 'XL PRs in queue', impact: 'negative' as const },
+        { name: 'Reviewer availability', impact: 'negative' as const },
+        { name: 'CI time increasing', impact: 'negative' as const },
+        { name: 'Feature freeze approaching', impact: 'neutral' as const }
+      ],
+      riskLevel: 'high',
+      recommendation: 'Split 2 XL PRs (>500 lines) and add additional reviewers to get back on track for sprint completion.'
+    },
+    healthScore12Months: 32,
+    projectedGrade12Months: 'D',
+    generatedAt: new Date().toISOString(),
+  },
+  flakyRate: 8,
+  mlSource: 'js_fallback',
+  scanDuration: 4.8,
+  timestamp: new Date().toISOString(),
+};

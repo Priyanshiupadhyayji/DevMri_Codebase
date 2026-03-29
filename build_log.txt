@@ -1,0 +1,23 @@
+
+> devmri@1.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 48s
+  Running TypeScript ...
+Failed to compile.
+
+./src/app/dashboard/page.tsx:196:56
+Type error: Cannot find name 'PipelineStage'.
+
+  194 |   const [showCertificate, setShowCertificate] = useState(false);
+  195 |
+> 196 |   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([
+      |                                                        ^
+  197 |     { id: 'install', name: 'Install', icon: '≡ƒôª', duration: 5, enabled: true, parallelizable: false },
+  198 |     { id: 'lint', name: 'Lint', icon: '≡ƒöì', duration: 3, enabled: true, parallelizable: true },
+  199 |     { id: 'test', name: 'Test', icon: '≡ƒº¬', duration: 8, enabled: true, parallelizable: true },
+Next.js build worker exited with code: 1 and signal: null

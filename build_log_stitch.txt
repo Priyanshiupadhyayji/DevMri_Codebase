@@ -1,0 +1,53 @@
+
+> devmri@1.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 42s
+  Running TypeScript ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/31) ...
+  Generating static pages using 7 workers (7/31) 
+  Generating static pages using 7 workers (15/31) 
+  Generating static pages using 7 workers (23/31) 
+Γ£ô Generating static pages using 7 workers (31/31) in 4.3s
+  Finalizing page optimization ...
+
+Route (app)
+Γöî Γùï /
+Γö£ Γùï /_not-found
+Γö£ ╞Æ /api/ai/chat
+Γö£ ╞Æ /api/badge
+Γö£ ╞Æ /api/benchmark
+Γö£ ╞Æ /api/demo
+Γö£ ╞Æ /api/download-extension
+Γö£ ╞Æ /api/email
+Γö£ ╞Æ /api/fix
+Γö£ ╞Æ /api/ml
+Γö£ ╞Æ /api/ml/classify
+Γö£ ╞Æ /api/ml/forecast
+Γö£ ╞Æ /api/openapi
+Γö£ ╞Æ /api/org
+Γö£ ╞Æ /api/rag
+Γö£ ╞Æ /api/sbom
+Γö£ ╞Æ /api/scan
+Γö£ ╞Æ /api/scheduler
+Γö£ ╞Æ /api/slack
+Γö£ ╞Æ /api/surgery
+Γö£ ╞Æ /api/team
+Γö£ ╞Æ /api/widget
+Γö£ Γùï /dashboard
+Γö£ Γùï /docs
+Γö£ Γùï /docs/api
+Γö£ Γùï /download
+Γö£ Γùï /leaderboard
+Γö£ Γùï /org
+Γöö Γùï /scanning
+
+
+Γùï  (Static)   prerendered as static content
+╞Æ  (Dynamic)  server-rendered on demand
+

@@ -1,0 +1,23 @@
+
+> devmri@1.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 64s
+  Running TypeScript ...
+Failed to compile.
+
+./src/app/dashboard/page.tsx:1052:126
+Type error: Property 'name' does not exist on type 'RepoMetadata'.
+
+  1050 |                <div style={{ position: 'absolute', bottom: -50, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 12 }}>
+  1051 |                  <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)' }}>VS</div>
+> 1052 |                  <div style={{ fontWeight: 900, color: getScoreColor(vsResult.dxScore) }}>{vsResult.dxScore} ({vsResult.repo.name})</div>
+       |                                                                                                                              ^
+  1053 |                </div>
+  1054 |              )}
+  1055 |           </div>
+Next.js build worker exited with code: 1 and signal: null
