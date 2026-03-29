@@ -344,8 +344,6 @@ Required for judges:
 - All questions answered in `.env.local.example`
 - Docker-compose for reproducible environment
 
-**Public Issue Tracker:** github.com/urjitupadhyay/DEVmri/issues
-
 ---
 
 **Made with 🩻 for teams drowning in DX problems across 5 dimensions: slow CI, flaky tests, stale docs, bloated deps, stuck reviews.**
