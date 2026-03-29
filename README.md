@@ -317,7 +317,7 @@ Required for judges:
 
 ---
 
-## 🏆 **Why DevMRI Wins**
+## 🏆 **Why DevMRI **
 
 1. **Precision vs. Noise:** We don't just say "tests failed"; we tell you **which file** failed by parsing the logs themselves.
 2. **Drift-Aware Depth:** We quantify **Version Debt**, showing exactly how far the codebase has drifted from the modern ecosystem.
@@ -344,7 +344,7 @@ Required for judges:
 - All questions answered in `.env.local.example`
 - Docker-compose for reproducible environment
 
-**Public Issue Tracker:** github.com/urjitupadhyay/DEVmri/issues
+**Public Issue Tracker:** github.com/Priyanshiupadhyayji/DEVmri/issues
 
 ---
 
