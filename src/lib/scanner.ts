@@ -8,7 +8,7 @@ import {
   ArrowFunction 
 } from 'ts-morph';
 import {
-  CICDResult, ReviewResult, DependencyResult, PipelineStage,
+  CICDResult, ReviewResult, DependencyResult, PipelineStage, FlakyTestDetails,
   TrendPoint, ReviewerStats, StalePR, PRDataPoint, VulnDetail,
   FreshnessItem, LicenseRisk, BusFactorResult, KnowledgeSilo, SecurityPosture,
   CommitHygieneResult, RepoMetadata, FrictionHeatmap, Hotspot, NecrosisScan, NecrosisFile,
@@ -220,7 +220,7 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
 
     // Enhanced Track B: Test Health Analysis
     const testSteps = Array.from(stageMap.entries()).filter(([name]) => /test|jest|spec|mocha|pytest|unit|e2e/i.test(name));
-    const flakyTestDetails = {
+    const flakyTestDetails: FlakyTestDetails = {
       flakyCount: testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.9).length,
       flakyPercentage: testSteps.length > 0 ? Math.round((testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.9).length / testSteps.length) * 100) : 0,
       likelyProblems: testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.85).map(([n, s]) => `${n} (${Math.round((s.successes/s.total)*100)}% pass rate)`),

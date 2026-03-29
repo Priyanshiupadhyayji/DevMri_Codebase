@@ -47,7 +47,7 @@ import { FailureReplay } from '@/components/FailureReplay';
 import { EngineeringDNA } from '@/components/EngineeringDNA';
 import { SurgeryTab } from './tabs/SurgeryTab';
 import { AutopsyReplay } from './components/AutopsyReplay';
-import { InteractivePipeline, PipelineStage } from './components/InteractivePipeline';
+import { InteractivePipeline, InteractiveStage } from './components/InteractivePipeline';
 import { ClinicalTour } from './components/ClinicalTour';
 import { PatientMonitor } from './components/PatientMonitor';
 
@@ -201,7 +201,7 @@ export default function DashboardPage() {
   const [cicdSortKey, setCicdSortKey] = useState<'name' | 'successPerformance' | 'duration'>('duration');
   const [cicdSortOrder, setCicdSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([
+  const [pipelineStages, setPipelineStages] = useState<InteractiveStage[]>([
     { id: 'install', name: 'Install', icon: '📦', duration: 5, enabled: true, parallelizable: false },
     { id: 'lint', name: 'Lint', icon: '🔍', duration: 3, enabled: true, parallelizable: true },
     { id: 'test', name: 'Test', icon: '🧪', duration: 8, enabled: true, parallelizable: true },
@@ -794,84 +794,7 @@ export default function DashboardPage() {
     }
   };
 
-  const TabButtonUI = ({ id, label, icon, currentTab, onTabChange }: { id: string; label: string; icon: string; currentTab: string; onTabChange: (id: any) => void }) => {
-    const isActive = currentTab === id;
-    const getIcon = () => {
-      if (icon) return icon;
-      switch(id) {
-        case 'overview': return '📊';
-        case 'surgery': return '🚀';
-        case 'cicd': return '🔄';
-        case 'reviews': return '👥';
-        case 'heatmap': return '🔥';
-        case 'deps': return '📦';
-        case 'teamxray': return '🔬';
-        case 'security': return '🛡️';
-        case 'fleet': return '🏢';
-        case 'forecast': return '📈';
-        case 'timemachine': return '🕰️';
-        case 'geneticdrift': return '🧬';
-        case 'necrosis': return '💀';
-        case 'pathology': return '🔎';
-        case 'autopsy': return '💀';
-        case 'replay': return '🔥';
-        case 'dna': return '🧬';
-        case 'history': return '📜';
-        case 'projection': return '📽️';
-        case 'badge': return '🏅';
-        case 'duel': return '⚔️';
-        default: return '💠';
-      }
-    };
 
-    return (
-      <button
-        onClick={() => onTabChange(id)}
-        style={{
-          background: isActive ? 'rgba(0,229,255,0.08)' : 'transparent',
-          border: 'none',
-          borderBottom: isActive ? '3.5px solid var(--scan-cyan)' : '3.5px solid transparent',
-          color: isActive ? 'var(--scan-cyan)' : 'var(--text-muted)',
-          padding: '14px 24px',
-          fontSize: '0.82rem',
-          fontWeight: isActive ? 900 : 600,
-          cursor: 'pointer',
-          transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-          whiteSpace: 'nowrap',
-          fontFamily: 'var(--font-display)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          borderRadius: '16px 16px 0 0',
-          position: 'relative',
-          letterSpacing: '0.03em',
-          textTransform: 'uppercase',
-          filter: isActive ? 'drop-shadow(0 0 8px rgba(0,229,255,0.2))' : 'none',
-        }}
-        onMouseEnter={e => {
-          if (!isActive) {
-            e.currentTarget.style.color = 'var(--text-primary)';
-            e.currentTarget.style.background = 'rgba(255,255,255,0.025)';
-          }
-        }}
-        onMouseLeave={e => {
-          if (!isActive) {
-            e.currentTarget.style.color = 'var(--text-muted)';
-            e.currentTarget.style.background = 'transparent';
-          }
-        }}
-      >
-        <span style={{ 
-          fontSize: '1.1rem', 
-          opacity: isActive ? 1 : 0.6,
-          transition: 'transform 0.3s'
-        }}>
-          {getIcon()}
-        </span>
-        <span>{label}</span>
-      </button>
-    );
-  };
 
   return (
     <main role="main" aria-label="DevMRI Dashboard" style={{ position: 'relative', zIndex: 1, minHeight: '100vh' }}>
@@ -2787,12 +2710,12 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        {item.majorDrift > 0 && (
+                        {(item.majorDrift || 0) > 0 && (
                           <div style={{ padding: '6px 12px', background: 'rgba(255, 23, 68, 0.08)', color: 'var(--critical-red)', borderRadius: 10, fontSize: '0.62rem', fontWeight: 950, border: '1px solid rgba(255, 23, 68, 0.2)', letterSpacing: '0.02em' }}>
                             ⚠️ {item.majorDrift} MAJOR BEHIND
                           </div>
                         )}
-                        {item.minorDrift > 0 && (
+                        {(item.minorDrift || 0) > 0 && (
                           <div style={{ padding: '6px 12px', background: 'rgba(255, 171, 0, 0.08)', color: 'var(--warning-amber)', borderRadius: 10, fontSize: '0.62rem', fontWeight: 950, border: '1px solid rgba(255, 171, 0, 0.2)', letterSpacing: '0.02em' }}>
                             DRIFT: {item.minorDrift} MINOR
                           </div>
@@ -4973,4 +4896,72 @@ jobs:
 
   );
 }
+
+const TabButtonUI = ({ id, label, icon, currentTab, onTabChange }: { id: string; label: string; icon: string; currentTab: string; onTabChange: (id: any) => void }) => {
+  const isActive = currentTab === id;
+  const getIcon = () => {
+    if (icon) return icon;
+    switch(id) {
+      case 'overview': return '📊';
+      case 'surgery': return '🚀';
+      case 'cicd': return '🔄';
+      case 'reviews': return '👥';
+      case 'heatmap': return '🔥';
+      case 'deps': return '📦';
+      case 'teamxray': return '🔬';
+      case 'security': return '🛡️';
+      case 'fleet': return '🏢';
+      case 'forecast': return '📈';
+      case 'timemachine': return '🕰️';
+      case 'geneticdrift': return '🧬';
+      case 'necrosis': return '💀';
+      case 'pathology': return '🔎';
+      case 'autopsy': return '💀';
+      case 'replay': return '🔥';
+      case 'dna': return '🧬';
+      case 'history': return '📜';
+      case 'projection': return '📽️';
+      case 'badge': return '🏅';
+      case 'duel': return '⚔️';
+      default: return '💠';
+    }
+  };
+
+  return (
+    <button
+      onClick={() => onTabChange(id)}
+      style={{
+        background: isActive ? 'rgba(0,229,255,0.08)' : 'transparent',
+        border: 'none',
+        borderBottom: isActive ? '3.5px solid var(--scan-cyan)' : '3.5px solid transparent',
+        color: isActive ? 'var(--scan-cyan)' : 'var(--text-muted)',
+        padding: '14px 24px',
+        fontSize: '0.82rem',
+        fontWeight: isActive ? 900 : 600,
+        cursor: 'pointer',
+        transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+        whiteSpace: 'nowrap',
+        fontFamily: 'var(--font-display)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        borderRadius: '16px 16px 0 0',
+        position: 'relative',
+        letterSpacing: '0.03em',
+        textTransform: 'uppercase',
+        filter: isActive ? 'drop-shadow(0 0 8px rgba(0,229,255,0.2))' : 'none',
+      }}
+    >
+      <span style={{ fontSize: '1.2rem', opacity: isActive ? 1 : 0.6 }}>{getIcon()}</span>
+      <span>{label}</span>
+      {isActive && (
+        <div style={{
+          position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)',
+          width: 4, height: 4, borderRadius: '50%', background: 'var(--scan-cyan)',
+          boxShadow: '0 0 10px var(--scan-cyan)'
+        }} />
+      )}
+    </button>
+  );
+};
 

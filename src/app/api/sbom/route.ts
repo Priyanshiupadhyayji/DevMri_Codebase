@@ -12,7 +12,11 @@ export async function GET(req: NextRequest) {
   try {
     // Fetch package.json from the repo
     const pkgRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/package.json`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'DevMRI-App',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
     });
 
     let deps: Record<string, string> = {};

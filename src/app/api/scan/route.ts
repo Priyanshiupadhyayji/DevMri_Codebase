@@ -218,10 +218,15 @@ export async function GET(req: NextRequest) {
           // Fetch runs for ML processing
           let workflowRuns: any[] = [];
           try {
-            const runsData = await fetch(
-              `https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=60`,
-              { headers: token ? { 'Authorization': `Bearer ${token}` } : {} }
-            ).then(r => r.json());
+          const runsData = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=60`,
+            { 
+              headers: {
+                'User-Agent': 'DevMRI-App',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              } 
+            }
+          ).then(r => r.json());
             workflowRuns = runsData.workflow_runs || [];
           } catch { /* GitHub API unavailable */ }
 

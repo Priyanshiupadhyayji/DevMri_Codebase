@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 
-export interface PipelineStage {
+export interface InteractiveStage {
   id: string;
   name: string;
   icon: string;
@@ -28,8 +28,8 @@ export function InteractivePipeline({
   failures = [],
   onAutopsy
 }: { 
-  stages: PipelineStage[], 
-  onStagesChange: (stages: PipelineStage[]) => void,
+  stages: InteractiveStage[], 
+  onStagesChange: (stages: InteractiveStage[]) => void,
   onScoreUpdate: (score: number, savings: number) => void,
   failures?: PipelineFailure[],
   onAutopsy?: (failure: PipelineFailure) => void

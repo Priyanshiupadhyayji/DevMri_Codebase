@@ -33,6 +33,13 @@ export interface TrendPoint {
   conclusion: string;
 }
 
+export interface FlakyTestDetails {
+  flakyCount: number;
+  flakyPercentage: number;
+  likelyProblems: string[];
+  failingFiles: string[];
+}
+
 export interface CICDResult {
   totalRuns: number;
   avgDurationMinutes: number;
@@ -65,11 +72,7 @@ export interface CICDResult {
       example: string;
     }>;
   }>;
-  flakyTestDetails?: {
-    flakyCount: number;
-    flakyPercentage: number;
-    likelyProblems: string[];
-  };
+  flakyTestDetails?: FlakyTestDetails;
 }
 
 // ═══════════════ CODE REVIEW ═══════════════
@@ -140,6 +143,8 @@ export interface FreshnessItem {
   latest: string;
   isOutdated: boolean;
   license: string;
+  majorDrift?: number;
+  minorDrift?: number;
 }
 
 export interface LicenseRisk {
