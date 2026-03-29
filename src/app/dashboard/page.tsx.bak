@@ -1,0 +1,3165 @@
+'use client';
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+function ChartWrapper({ children, width = '100%', height = '100%' }: { children: React.ReactNode; width?: string | number; height?: string | number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const { offsetWidth, offsetHeight } = containerRef.current;
+        if (offsetWidth > 0 && offsetHeight > 0) {
+          setDimensions({ width: offsetWidth, height: offsetHeight });
+        }
+      }
+    };
+    updateDimensions();
+    const observer = new ResizeObserver(updateDimensions);
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!dimensions) {
+    return <div ref={containerRef} style={{ width, height, minWidth: 200, minHeight: 150 }} />;
+  }
+
+  return (
+    <div ref={containerRef} style={{ width, height }}>
+      {children}
+    </div>
+  );
+}
+import { useRouter } from 'next/navigation';
+import { ThemeToggle } from '@/components/ThemeProvider';
+import { FullScanResult, ChatMessage, SimulationResult, Recommendation } from '@/lib/types';
+import confetti from 'canvas-confetti';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { getScoreColor, getGradeColor, calculateFrictionCost } from '@/lib/scoring';
+import { useSounds } from '@/lib/sounds';
+import { useSurgeonVoice } from '@/lib/speech';
+import { EKGMonitor, EKGMonitorMini } from '@/components/EKGMonitor';
+import { MedicalCertificate } from '@/components/MedicalCertificate';
+import { CodeAutopsy } from '@/components/CodeAutopsy';
+import { FailureReplay } from '@/components/FailureReplay';
+import { EngineeringDNA } from '@/components/EngineeringDNA';
+import { SurgeryTab } from './tabs/SurgeryTab';
+import { AutopsyReplay } from './components/AutopsyReplay';
+import { InteractivePipeline, PipelineStage } from './components/InteractivePipeline';
+import { ClinicalTour } from './components/ClinicalTour';
+import { PatientMonitor } from './components/PatientMonitor';
+
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  RadarChart, Radar, PolarGrid,
+  PolarAngleAxis, PolarRadiusAxis, Treemap,
+  PieChart, Pie, Cell, LineChart, Line, ScatterChart, Scatter, CartesianGrid,
+  ComposedChart, Area
+} from 'recharts';
+
+
+const CHART_COLORS = ['var(--scan-cyan)', 'var(--health-green)', 'var(--warning-amber)', 'var(--warning-orange)', 'var(--critical-red)', 'var(--purple)'];
+const DORA_COLORS: Record<string, string> = { ELITE: 'var(--health-green)', HIGH: 'var(--scan-cyan)', MEDIUM: 'var(--warning-amber)', LOW: 'var(--critical-red)' };
+
+const CustomTooltip = { background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: 10, color: 'var(--text-primary)', fontSize: '0.8rem', padding: '10px 14px' };
+
+function EmptyClinicalState({ icon, title, description, badge, suggestedRepos = [] }: { icon: string, title: string, description: string, badge?: string, suggestedRepos?: string[] }) {
+  return (
+    <div className="card animate-fade-in" style={{ textAlign: 'center', padding: '64px 32px', border: '1px dashed rgba(0,229,255,0.2)', background: 'linear-gradient(180deg, rgba(0,229,255,0.02), transparent)' }}>
+      <div style={{ fontSize: '4rem', marginBottom: 20, filter: 'drop-shadow(0 0 20px rgba(0,229,255,0.2))' }}>{icon}</div>
+      {badge && <div className="badge badge-medium" style={{ marginBottom: 16 }}>{badge}</div>}
+      <h3 style={{ color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 900, marginBottom: 12, letterSpacing: '-0.01em' }}>{title}</h3>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', maxWidth: 520, margin: '0 auto 24px', lineHeight: 1.6, fontWeight: 500 }}>
+        {description}
+      </p>
+      
+      {suggestedRepos.length > 0 && (
+        <div style={{ 
+          background: 'rgba(0,229,255,0.05)', border: '1px solid rgba(0,229,255,0.15)', 
+          borderRadius: 16, padding: '20px 32px', maxWidth: 500, margin: '0 auto 24px',
+          textAlign: 'left'
+        }}>
+          <p style={{ color: 'var(--scan-cyan)', fontSize: '0.75rem', fontWeight: 900, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.12em' }}>🔬 Suggested Tissue Samples</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {suggestedRepos.map(repo => (
+              <button 
+                key={repo}
+                className="btn btn-ghost"
+                onClick={() => window.location.href = `/dashboard?repo=${repo}`}
+                style={{ fontSize: '0.75rem', padding: '6px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, fontWeight: 700 }}
+              >
+                {repo} →
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic', fontWeight: 500 }}>
+        💡 Insight: Diagnostic sensors require historical commit logs and workflow metadata to generate high-fidelity telemetry.
+      </div>
+    </div>
+  );
+}
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const [result, setResult] = useState<FullScanResult | null>(null);
+  const [vsResult, setVsResult] = useState<FullScanResult | null>(null);
+  const [showDuel, setShowDuel] = useState(false);
+  const [animatedScore, setAnimatedScore] = useState(0);
+  const [activeTab, setActiveTab] = useState<'overview' | 'cicd' | 'reviews' | 'heatmap' | 'deps' | 'necrosis' | 'security' | 'projection' | 'duel' | 'forecast' | 'surgery' | 'badge' | 'timemachine' | 'geneticdrift' | 'history' | 'teamxray' | 'fleet' | 'pathology' | 'autopsy' | 'replay' | 'dna'>('overview');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [simChecked, setSimChecked] = useState<Record<string, boolean>>({});
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [hourlyRate, setHourlyRate] = useState(75);
+  const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showShareToast, setShowShareToast] = useState(false);
+  const [selectedHotspot, setSelectedHotspot] = useState<any>(null);
+  const [isSkeleton, setIsSkeleton] = useState(false);
+  const [pipelineScoreBoost, setPipelineScoreBoost] = useState(0);
+  const [pipelineSavings, setPipelineSavings] = useState(0);
+  const [dxScoreGlow, setDxScoreGlow] = useState(false);
+  const [fixPrLoading, setFixPrLoading] = useState<string | null>(null);
+  const surgeryInProgress = fixPrLoading;
+  const [prCreated, setPrCreated] = useState<{ url: string; number: number } | null>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isChatMaximized, setIsChatMaximized] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  // RAG State
+  const [chatMode, setChatMode] = useState<'diagnostics' | 'codebase'>('diagnostics');
+  const [ragIndexed, setRagIndexed] = useState(false);
+  const [ragIndexing, setRagIndexing] = useState(false);
+  const [ragProgress, setRagProgress] = useState('');
+  const [ragSources, setRagSources] = useState<{filePath: string; startLine: number; endLine: number; relevanceScore: number}[]>([]);
+  const [isXrayMode, setIsXrayMode] = useState(false);
+  const [showToolsModal, setShowToolsModal] = useState(false);
+  const [slackWebhook, setSlackWebhook] = useState('');
+  const [pendingSurgery, setPendingSurgery] = useState<{ title: string; severity: string; initialCode?: string } | null>(null);
+  const [teamData, setTeamData] = useState<any>(null);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState('');
+  const [isPreparingPR, setIsPreparingPR] = useState(false);
+  const [prPrepared, setPrPrepared] = useState(false);
+
+  
+  const [showAutopsy, setShowAutopsy] = useState(false);
+  const [autopsyData, setAutopsyData] = useState<any>(null);
+  
+  const { playScoreChime, startHospitalAmbience, stopHospitalAmbience } = useSounds();
+  const [ambientEnabled, setAmbientEnabled] = useState(false);
+  const { speakDiagnosis, cancel: cancelVoice } = useSurgeonVoice();
+
+  const [showTour, setShowTour] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
+  const [expandedFix, setExpandedFix] = useState<string | null>(null); // which fix diff is expanded
+  const [fixSuccess, setFixSuccess] = useState<Record<string, { url: string; number: number }>>({}); // PR created successes
+
+  // Voice triggers
+  const scanSpokenRef = useRef(false);
+  useEffect(() => {
+    if (result && !scanSpokenRef.current) {
+      const repoName = result.repo?.fullName || 'repository';
+      const severity = result.dxScore < 40 ? 'CRITICAL' : result.dxScore < 60 ? 'HIGH' : 'MEDIUM';
+      speakDiagnosis(result.dxScore, result.grade, severity, repoName);
+      scanSpokenRef.current = true;
+    }
+  }, [result, speakDiagnosis]);
+
+  // Hospital ambient soundscape
+
+  useEffect(() => {
+    if (ambientEnabled) {
+      startHospitalAmbience();
+    } else {
+      stopHospitalAmbience();
+    }
+    return () => {
+      stopHospitalAmbience();
+    };
+  }, [ambientEnabled, startHospitalAmbience, stopHospitalAmbience]);
+
+  // X-Ray Deep Zoom state
+  const [deepZoomLevel, setDeepZoomLevel] = useState(0);
+  const [hoveredFile, setHoveredFile] = useState<any>(null);
+  const [zoomPath, setZoomPath] = useState<string[]>([]);
+  const deepZoomCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Badge state
+  const [badgeCopied, setBadgeCopied] = useState(false);
+  const [showCertificate, setShowCertificate] = useState(false);
+  const [cicdSortKey, setCicdSortKey] = useState<'name' | 'successPerformance' | 'duration'>('duration');
+  const [cicdSortOrder, setCicdSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([
+    { id: 'install', name: 'Install', icon: '📦', duration: 5, enabled: true, parallelizable: false },
+    { id: 'lint', name: 'Lint', icon: '🔍', duration: 3, enabled: true, parallelizable: true },
+    { id: 'test', name: 'Test', icon: '🧪', duration: 8, enabled: true, parallelizable: true },
+    { id: 'build', name: 'Build', icon: '🏗️', duration: 4, enabled: true, parallelizable: false },
+    { id: 'deploy', name: 'Deploy', icon: '🚀', duration: 6, enabled: true, parallelizable: false },
+  ]);
+
+  const handlePipelineScoreUpdate = useCallback((boost: number, savings: number) => {
+    setPipelineScoreBoost(boost);
+    setPipelineSavings(savings);
+    setDxScoreGlow(true);
+    setTimeout(() => setDxScoreGlow(false), 500);
+  }, []);
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem('devmri_result');
+    const storedVs = sessionStorage.getItem('devmri_vs_result');
+    if (!stored) { router.push('/'); return; }
+    const parsed = JSON.parse(stored) as FullScanResult;
+    setResult(parsed);
+    
+    if (storedVs) {
+      setVsResult(JSON.parse(storedVs) as FullScanResult);
+      setActiveTab('duel');
+      setShowDuel(true);
+    }
+
+    // Animate score with easing
+    const target = parsed.dxScore;
+    const duration = 1800;
+    const startTime = performance.now();
+    const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+    const tick = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const currentScore = Math.round(easeOut(progress) * target);
+      setAnimatedScore(currentScore);
+      
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      } else if (target >= 80) {
+        // 🎉 Trigger celebration for A-Grade repos
+        playScoreChime();
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ['var(--scan-cyan)', 'var(--health-green)', '#ffffff']
+        });
+      }
+    };
+    requestAnimationFrame(tick);
+  }, [router, showDuel, playScoreChime]);
+
+  // Index codebase for RAG
+  const indexCodebase = async () => {
+    if (!result || ragIndexing) return;
+    setRagIndexing(true);
+    setRagProgress('Starting codebase indexing...');
+    try {
+      const [owner, repo] = result.repo.fullName.split('/');
+      const res = await fetch('/api/rag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'index', owner, repo }),
+      });
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'progress') setRagProgress(data.message);
+                if (data.type === 'complete') { setRagIndexed(true); setRagProgress(`✅ Indexed ${data.fileCount} files (${data.chunkCount} chunks)`); }
+                if (data.type === 'error') setRagProgress(`❌ ${data.message}`);
+              } catch { /* Skip */ }
+            }
+          }
+        }
+      }
+    } catch { setRagProgress('❌ Indexing failed'); }
+    setRagIndexing(false);
+  };
+
+  const sendChat = async (overrideMessage?: string) => {
+    const msg = (overrideMessage || chatInput).trim();
+    if (!msg || !result || chatLoading) return;
+    setChatInput('');
+    setRagSources([]);
+    const userMsg: ChatMessage = { role: 'user', content: msg, timestamp: new Date().toISOString() };
+    setChatMessages(prev => [...prev, userMsg]);
+    
+    const aiMsg: ChatMessage = { role: 'ai', content: '', timestamp: new Date().toISOString() };
+    setChatMessages(prev => [...prev, aiMsg]);
+    setChatLoading(true);
+    
+    const isRAG = chatMode === 'codebase' && ragIndexed;
+    const endpoint = isRAG ? '/api/rag' : '/api/ai/chat';
+    const body = isRAG
+      ? { action: 'query', repoKey: result.repo.fullName, question: msg, history: chatMessages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', content: m.content })) }
+      : { message: msg, scanResults: result, history: chatMessages };
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulated = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.type === 'chunk') {
+                  accumulated += data.content;
+                  setChatMessages(prev => {
+                    const newMsgs = [...prev];
+                    newMsgs[newMsgs.length - 1] = { ...aiMsg, content: accumulated };
+                    return newMsgs;
+                  });
+                }
+                if (data.type === 'sources') setRagSources(data.sources || []);
+              } catch { /* Skip invalid JSON */ }
+            }
+          }
+        }
+      }
+    } catch {
+      setChatMessages(prev => {
+        const newMsgs = [...prev];
+        newMsgs[newMsgs.length - 1] = { role: 'ai', content: 'Connection error. Please try again.', timestamp: new Date().toISOString() };
+        return newMsgs;
+      });
+    }
+    setChatLoading(false);
+  };
+
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [chatMessages]);
+
+  const handleSpeakDiagnosis = async () => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      cancelVoice();
+      return;
+    }
+
+    if (!result) return;
+
+    setIsSpeaking(true);
+    
+    const intro = `Doctor's Briefing for repository ${result.repo.fullName}. `;
+    const scoreText = `Overall DX score is ${result.dxScore}, receiving a grade ${result.grade}. `;
+    const frictionText = `I've detected monthly friction costs of approximately ${frictionCost.total.toLocaleString()} dollars. `;
+    
+    const recs = result.aiDiagnosis?.recommendations.slice(0, 2).map(r => 
+      `${r.severity} priority: ${r.title}. It's costing about ${r.frictionCost.toLocaleString()} per month.`
+    ).join(' ') || '';
+
+    const closure = "Review the full recovery plan below to reclaim lost developer hours.";
+    
+    const utterance = new SpeechSynthesisUtterance(intro + scoreText + frictionText + recs + closure);
+    utterance.rate = 0.95;
+    utterance.pitch = 0.9;
+    
+    utterance.onend = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const copyShareLink = () => {
+    if (!result) return;
+    const url = new URL(window.location.origin);
+    url.pathname = '/scanning';
+    url.searchParams.set('repo', result.repo.fullName);
+    if (vsResult) url.searchParams.set('vs', vsResult.repo.fullName);
+    
+    navigator.clipboard.writeText(url.toString());
+    setShowShareToast(true);
+    setTimeout(() => setShowShareToast(false), 3000);
+  };
+
+  const copyToClipboard = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 2000);
+  };
+
+  const createFixPR = async (fixType: string, title: string, description: string, filePath: string, fileContent: string) => {
+    if (!result) return;
+    setFixPrLoading(fixType);
+    try {
+      const res = await fetch('/api/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: result.repo.owner,
+          repo: result.repo.repo,
+          fixType,
+          title,
+          description,
+          filePath,
+          fileContent,
+          baseBranch: result.repo.defaultBranch,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPrCreated({ url: data.prUrl, number: data.prNumber });
+        setTimeout(() => setPrCreated(null), 8000);
+      } else {
+        alert(`Failed to create PR: ${data.error}`);
+      }
+    } catch {
+      alert('Failed to create fix PR');
+    }
+    setFixPrLoading(null);
+  };
+  const [scanHistory, setScanHistory] = useState<any[]>([]);
+  const [showEmailToast, setShowEmailToast] = useState(false);
+  const [isVocalListening, setIsVocalListening] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+
+  // CMD+K Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowGlobalSearch(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Team X-Ray data fetch
+  useEffect(() => {
+    if (result && !teamData && !teamLoading) {
+      setTeamLoading(true);
+      fetch(`/api/team?repo=${result.repo.fullName}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) setTeamError(data.error);
+          else setTeamData(data);
+        })
+        .catch(e => setTeamError(e.message))
+        .finally(() => setTeamLoading(false));
+    }
+  }, [result, teamData, teamLoading]);
+
+  // Vocal Surgery
+  const triggerVocalSurgery = () => {
+    if (!('webkitSpeechRecognition' in window)) {
+      alert("Speech recognition not supported in this browser. Simulation enabled.");
+      handleVoiceCommand("Improve build speed and add linting");
+      return;
+    }
+    const recognition = new (window as any).webkitSpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.onstart = () => setIsVocalListening(true);
+    recognition.onresult = (event: any) => {
+      const command = event.results[0][0].transcript;
+      handleVoiceCommand(command);
+    };
+    recognition.onend = () => setIsVocalListening(false);
+    recognition.start();
+  };
+
+  const handleVoiceCommand = async (command: string) => {
+    if (!result) return;
+    setPendingSurgery({
+      title: `VOCAL_COMMAND: ${command.toUpperCase()}`,
+      severity: 'MEDIUM',
+      initialCode: `// VOCAL_SURGERY_INITIATED\n// RECONSTRUCTING_TISSUE_FROM_VOICE...\n\n// Command: "${command}"`
+    });
+    setActiveTab('surgery');
+  };
+
+  // Persistence: Save to Scan History
+  useEffect(() => {
+    if (!result) return;
+    const history = JSON.parse(localStorage.getItem('devmri_history') || '[]');
+    const isNew = !history.some((h: any) => h.repo === result.repo.fullName);
+    if (isNew) {
+      const newEntry = { 
+        repo: result.repo.fullName, 
+        score: result.dxScore, 
+        grade: result.grade, 
+        date: new Date().toISOString() 
+      };
+      const updated = [newEntry, ...history].slice(0, 10);
+      localStorage.setItem('devmri_history', JSON.stringify(updated));
+      setScanHistory(updated);
+    } else {
+      setScanHistory(history);
+    }
+  }, [result]);
+
+  const sendEmailReport = () => {
+    setShowEmailToast(true);
+    setTimeout(() => setShowEmailToast(false), 4000);
+  };
+
+  const [fixingRec, setFixingRec] = useState<string | null>(null);
+  const [fixStatus, setFixStatus] = useState<Record<string, { success: boolean; message: string; url?: string; number?: number } | null>>({});
+
+  if (!result) return null;
+
+  const { dxScore, grade, scores, cicd, reviews, deps, dora, busFactor, heatmap, necrosis, security, commitHygiene, simulation, aiDiagnosis } = result;
+  const scoreColor = getScoreColor(dxScore);
+  const gradeColor = getGradeColor(grade);
+
+  // Recalculate friction cost with adjustable hourly rate
+  const frictionCost = calculateFrictionCost(cicd, reviews, deps, hourlyRate);
+
+  // Simulation calculation (includes interactive pipeline boost - Feature #2)
+  const enabledSims = simulation.filter(s => simChecked[s.fixType]);
+  const simScoreBoost = enabledSims.reduce((sum, s) => sum + s.scoreChange, 0);
+  const simSavings = enabledSims.reduce((sum, s) => sum + s.monthlySavings, 0);
+  const totalScoreBoost = simScoreBoost + pipelineScoreBoost;
+  const totalSavings = simSavings + (pipelineSavings * hourlyRate * 4);
+  const projectedScore = Math.min(100, dxScore + totalScoreBoost);
+
+  const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+
+  // Radar data for Duel
+  const duelRadarData = vsResult ? [
+    { subject: 'CI/CD', A: result.scores.cicd, B: vsResult.scores.cicd },
+    { subject: 'Reviews', A: result.scores.reviews, B: vsResult.scores.reviews },
+    { subject: 'Silo Risk', A: 100 - (result.busFactor?.busFactor || 0) * 20, B: 100 - (vsResult.busFactor?.busFactor || 0) * 20 },
+    { subject: 'Sec', A: result.scores.deps, B: vsResult.scores.deps },
+    { subject: 'Overall', A: result.dxScore, B: vsResult.dxScore },
+  ] : [];
+
+  const exportClinicalReport = () => {
+    window.print();
+  };
+
+  const downloadPDFReport = () => {
+    const printContent = document.createElement('div');
+    const reportId = `MRI-${result.timestamp.replace(/[-:T.Z]/g, '').slice(0, 12)}`;
+    const date = new Date(result.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    printContent.innerHTML = `
+      <div style="font-family: 'JetBrains Mono', monospace; padding: 40px; max-width: 800px; margin: 0 auto; color: #1a1a1a; background: #fff;">
+        <div style="text-align: center; border-bottom: 3px solid var(--scan-cyan); padding-bottom: 20px; margin-bottom: 30px;">
+          <h1 style="font-size: 28px; color: var(--scan-cyan);">⚕️🧠 DevMRI Clinical Diagnostic</h1>
+          <p style="color: #666; margin: 8px 0 0;">Engineering Health Report & Friction Analysis</p>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; margin-bottom: 30px; padding: 20px; background: #f5f5f5; border-radius: 12px;">
+          <div>
+            <p style="margin: 0; color: #666; font-size: 12px;">REPORT ID</p>
+            <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a1a;">${reportId}</p>
+          </div>
+          <div style="text-align: right;">
+            <p style="margin: 0; color: #666; font-size: 12px;">GENERATED</p>
+            <p style="margin: 4px 0 0; font-weight: bold; color: #1a1a1a;">${date}</p>
+          </div>
+        </div>
+        
+        <div style="margin-bottom: 30px;">
+          <h2 style="font-size: 20px; color: #1a1a1a; margin: 0 0 16px;">Repository: ${result.repo.fullName}</h2>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <span style="background: #f0f0f0; padding: 4px 12px; border-radius: 20px; font-size: 12px;">⭐ ${result.repo.stars.toLocaleString()} stars</span>
+            <span style="background: #f0f0f0; padding: 4px 12px; border-radius: 20px; font-size: 12px;">${result.repo.language || 'N/A'}</span>
+            <span style="background: #f0f0f0; padding: 4px 12px; border-radius: 20px; font-size: 12px;">Branch: ${result.repo.defaultBranch}</span>
+          </div>
+        </div>
+        
+        <div style="display: flex; gap: 24px; margin-bottom: 30px;">
+          <div style="flex: 1; text-align: center; padding: 24px; background: ${scoreColor}15; border: 2px solid ${scoreColor}; border-radius: 16px;">
+            <div style="font-size: 48px; font-weight: 900; color: ${scoreColor}; margin: 0; line-height: 1;">${dxScore}</div>
+            <div style="font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px;">DX Score</div>
+          </div>
+          <div style="flex: 1; text-align: center; padding: 24px; background: ${gradeColor}15; border: 2px solid ${gradeColor}; border-radius: 16px;">
+            <div style="font-size: 48px; font-weight: 900; color: ${gradeColor}; margin: 0; line-height: 1;">${grade}</div>
+            <div style="font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px;">Grade</div>
+          </div>
+        </div>
+        
+        <div style="margin-bottom: 30px;">
+          <h3 style="font-size: 16px; color: #1a1a1a; margin: 0 0 16px; border-bottom: 1px solid #eee; padding-bottom: 8px;">Module Scores</h3>
+          ${Object.entries(scores).map(([key, value]) => `
+            <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f5f5f5;">
+              <span style="text-transform: capitalize; color: #444;">${key.replace(/([A-Z])/g, ' $1').trim()}</span>
+              <span style="font-weight: bold; color: ${getScoreColor(value as number)};">${value as number}</span>
+            </div>
+          `).join('')}
+        </div>
+        
+        <div style="margin-bottom: 30px;">
+          <h3 style="font-size: 16px; color: #1a1a1a; margin: 0 0 16px; border-bottom: 1px solid #eee; padding-bottom: 8px;">Friction Cost Analysis</h3>
+          <div style="padding: 16px; background: #fff5f5; border-radius: 8px; border-left: 4px solid var(--critical-red);">
+            <div style="font-size: 24px; font-weight: 900; color: var(--critical-red); margin: 0;">$${frictionCost.total.toLocaleString()}</div>
+            <p style="margin: 4px 0 0; color: #666; font-size: 14px;">Monthly Developer Friction Cost</p>
+          </div>
+        </div>
+        
+        ${aiDiagnosis?.recommendations && aiDiagnosis.recommendations.length > 0 ? `
+          <div style="margin-bottom: 30px;">
+            <h3 style="font-size: 16px; color: #1a1a1a; margin: 0 0 16px; border-bottom: 1px solid #eee; padding-bottom: 8px;">Top Recommendations</h3>
+            ${aiDiagnosis.recommendations.slice(0, 3).map((rec, idx) => `
+              <div style="padding: 12px; background: #f9f9f9; border-radius: 8px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="font-weight: 600; color: #1a1a1a;">${rec.title}</span>
+                  <span style="background: ${rec.severity === 'CRITICAL' ? 'var(--critical-red)' : rec.severity === 'HIGH' ? 'var(--warning-orange)' : 'var(--warning-amber)'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px;">${rec.severity}</span>
+                </div>
+                <p style="margin: 0; color: #666; font-size: 13px;">${rec.description}</p>
+                <p style="margin: 8px 0 0; color: var(--warning-orange); font-size: 13px;">Potential savings: $${rec.frictionCost.toLocaleString()}/mo</p>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        
+        <div style="text-align: center; padding-top: 20px; border-top: 1px solid #eee; margin-top: 40px;">
+          <p style="color: #999; font-size: 12px; margin: 0;">Generated by DevMRI — Scan your repositories at devmri.com</p>
+        </div>
+      </div>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>DevMRI Report - ${result.repo.fullName}</title>
+            <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+            <style>
+              @media print {
+                body { margin: 0; }
+                @page { margin: 0.5in; }
+              </style>
+          </head>
+          <body>${printContent.innerHTML}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+
+  const handleApplyFix = async (rec: any) => {
+    if (!rec) return;
+    const recId = rec.title;
+    setFixingRec(recId);
+    setFixStatus(prev => ({ ...prev, [recId]: null }));
+    try {
+      const res = await fetch('/api/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: result.repo.owner,
+          repo: result.repo.repo,
+          fixType: rec.metric || 'ci_optimization',
+          title: rec.title || 'DevMRI Auto-Fix',
+          description: rec.description || '',
+          filePath: `.devmri/${(rec.metric || 'fix').replace(/\s+/g, '_').toLowerCase()}-fix.yml`,
+          fileContent: rec.codeExample || `# DevMRI Auto-Fix: ${rec.title}\n# Generated by DevMRI Diagnostic Platform\n\n${rec.description || ''}`,
+          baseBranch: result.repo.defaultBranch || 'main',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFixStatus(prev => ({ ...prev, [recId]: { success: true, message: 'PR Created.', url: data.prUrl, number: data.prNumber } }));
+        setTimeout(() => setPrCreated(null), 8000);
+      } else {
+        setFixStatus(prev => ({ ...prev, [recId]: { success: false, message: data.error || 'Operation Failed.' } }));
+      }
+    } catch (err) {
+      setFixStatus(prev => ({ ...prev, [recId]: { success: false, message: 'Neural connection failed.' } }));
+    } finally {
+      setFixingRec(null);
+    }
+  };
+
+  const sendToSlack = async () => {
+    const webhook = prompt('Enter Slack/Discord Webhook URL:', slackWebhook);
+    if (!webhook) return;
+    setSlackWebhook(webhook);
+    
+    const payload = {
+      text: `🏥 *DevMRI Diagnostic Report: ${result.repo.fullName}*\n\n*Overall Health:* \`${result.dxScore}/100\` (Grade ${result.grade})\n\n*Top Recommendations:*\n${(result.aiDiagnosis?.recommendations || []).slice(0, 3).map((r: any) => `• *${r.title}* (${r.severity})`).join('\n')}\n\n*Monthly Friction Cost:* $${frictionCost.total.toLocaleString()}\n\n🔗 _View full report at DevMRI_`,
+    };
+
+    try {
+      await fetch(webhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors'
+      });
+      alert('Clinical report dispatched to Slack/Discord!');
+    } catch (err) {
+      alert('Failed to dispatch report. Check webhook URL.');
+    }
+  };
+
+  const TabButtonUI = ({ id, label, icon, currentTab, onTabChange }: { id: string; label: string; icon: string; currentTab: string; onTabChange: (id: any) => void }) => {
+    const isActive = currentTab === id;
+    const getIcon = () => {
+      if (icon) return icon;
+      switch(id) {
+        case 'overview': return '📊';
+        case 'surgery': return '🚀';
+        case 'cicd': return '🔄';
+        case 'reviews': return '👥';
+        case 'heatmap': return '🔥';
+        case 'deps': return '📦';
+        case 'teamxray': return '🔬';
+        case 'security': return '🛡️';
+        case 'fleet': return '🏢';
+        case 'forecast': return '📈';
+        case 'timemachine': return '🕰️';
+        case 'geneticdrift': return '🧬';
+        case 'necrosis': return '💀';
+        case 'pathology': return '🔎';
+        case 'autopsy': return '💀';
+        case 'replay': return '🔥';
+        case 'dna': return '🧬';
+        case 'history': return '📜';
+        case 'projection': return '📽️';
+        case 'badge': return '🏅';
+        case 'duel': return '⚔️';
+        default: return '💠';
+      }
+    };
+
+    return (
+      <button
+        onClick={() => onTabChange(id)}
+        style={{
+          background: isActive ? 'rgba(0,229,255,0.08)' : 'transparent',
+          border: 'none',
+          borderBottom: isActive ? '3.5px solid var(--scan-cyan)' : '3.5px solid transparent',
+          color: isActive ? 'var(--scan-cyan)' : 'var(--text-muted)',
+          padding: '14px 24px',
+          fontSize: '0.82rem',
+          fontWeight: isActive ? 900 : 600,
+          cursor: 'pointer',
+          transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+          whiteSpace: 'nowrap',
+          fontFamily: 'var(--font-display)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          borderRadius: '16px 16px 0 0',
+          position: 'relative',
+          letterSpacing: '0.03em',
+          textTransform: 'uppercase',
+          filter: isActive ? 'drop-shadow(0 0 8px rgba(0,229,255,0.2))' : 'none',
+        }}
+        onMouseEnter={e => {
+          if (!isActive) {
+            e.currentTarget.style.color = 'var(--text-primary)';
+            e.currentTarget.style.background = 'rgba(255,255,255,0.025)';
+          }
+        }}
+        onMouseLeave={e => {
+          if (!isActive) {
+            e.currentTarget.style.color = 'var(--text-muted)';
+            e.currentTarget.style.background = 'transparent';
+          }
+        }}
+      >
+        <span style={{ 
+          fontSize: '1.1rem', 
+          opacity: isActive ? 1 : 0.6,
+          transition: 'transform 0.3s'
+        }}>
+          {getIcon()}
+        </span>
+        <span>{label}</span>
+      </button>
+    );
+  };
+
+  return (
+    <main role="main" aria-label="DevMRI Dashboard" style={{ position: 'relative', zIndex: 1, minHeight: '100vh' }}>
+      <div className="scan-monitor-overlay" style={{ minHeight: '100vh', padding: '32px 24px 64px' }}>
+      {showShareToast && (
+        <div style={{
+          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--scan-cyan)', color: '#000810', padding: '12px 24px', borderRadius: 30,
+          fontWeight: 700, boxShadow: '0 8px 32px rgba(0,229,255,0.4)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', gap: 8
+        }} className="animate-fade-in">
+          <span>🔗</span> Link copied to clipboard!
+        </div>
+      )}
+      {showCertificate && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 2000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setShowCertificate(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <MedicalCertificate 
+              repoName={result.repo.fullName} 
+              dxScore={dxScore} 
+              grade={grade}
+              onClose={() => setShowCertificate(false)}
+            />
+          </div>
+        </div>
+      )}
+      {/* ══════ TOOLS POPUP MODAL ══════ */}
+      {showToolsModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+          animation: 'fadeIn 0.2s ease',
+        }} onClick={() => setShowToolsModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: 'var(--bg-primary, #fff)',
+            border: '1px solid var(--border-color, #e8e8ed)',
+            borderRadius: 20,
+            padding: '24px 20px',
+            minWidth: 300,
+            maxWidth: 360,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.25)',
+            animation: 'slideUp 0.25s cubic-bezier(0.19, 1, 0.22, 1)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary, #111)' }}>⚙️ Tools</h3>
+              <button onClick={() => setShowToolsModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted, #999)', padding: '4px 8px' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[
+                { icon: '🎵', label: 'Hospital Ambience', active: ambientEnabled, fn: () => setAmbientEnabled(!ambientEnabled) },
+                { icon: '🦴', label: 'X-Ray Mode', active: isSkeleton, fn: () => setIsSkeleton(!isSkeleton) },
+                { icon: '🌙', label: 'Night Shift', active: isXrayMode, fn: () => { setIsXrayMode(!isXrayMode); document.documentElement.classList.toggle('xray-mode-active'); } },
+                { icon: '🎓', label: 'Start Induction', fn: () => { setShowTour(true); setTourStep(0); setShowToolsModal(false); } },
+                { icon: '📋', label: 'Clinical Report', fn: () => { downloadPDFReport(); setShowToolsModal(false); } },
+                { icon: '📧', label: 'Ship via Email', fn: () => { sendEmailReport(); setShowToolsModal(false); } },
+                { icon: '💬', label: 'Slack / Discord', fn: () => { sendToSlack(); setShowToolsModal(false); } },
+                { icon: '🏅', label: 'Certificate', fn: () => { setShowCertificate(true); setShowToolsModal(false); } },
+              ].map((item, i) => (
+                <button key={i} onClick={() => { item.fn(); if ((item as any).active !== undefined) {} else { /* non-toggle items close in fn */ } }} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  width: '100%', background: 'transparent', border: 'none',
+                  color: (item as any).active ? 'var(--scan-cyan, #00b8d4)' : 'var(--text-primary, #333)',
+                  padding: '12px 14px', borderRadius: 12, fontSize: '0.85rem', cursor: 'pointer', textAlign: 'left',
+                  transition: 'background 0.15s',
+                  fontWeight: 500,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary, #f5f5fa)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                  {(item as any).active !== undefined && (
+                    <span style={{
+                      padding: '2px 10px', borderRadius: 20, fontSize: '0.65rem', fontWeight: 800,
+                      background: (item as any).active ? 'rgba(0,230,118,0.15)' : 'rgba(150,150,150,0.1)',
+                      color: (item as any).active ? '#00e676' : 'var(--text-muted, #999)',
+                    }}>
+                      {(item as any).active ? 'ON' : 'OFF'}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {prCreated && (
+        <div className="pr-created-toast">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: '1.5rem' }}>🎉</span>
+            <div>
+              <div style={{ fontWeight: 700 }}>PR Created Successfully!</div>
+              <a 
+                href={prCreated.url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ color: 'white', textDecoration: 'underline', fontSize: '0.85rem' }}
+              >
+                View PR #{prCreated.number} →
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className={`container ${isSkeleton ? 'is-skeleton' : ''}`}>
+        <PatientMonitor 
+          dxScore={dxScore}
+          grade={grade}
+          frictionCost={frictionCost.total}
+          repoName={result.repo.fullName}
+          activeSurgery={fixPrLoading}
+        />
+        {/* PRINT ONLY HEADER */}
+        <div className="clinical-report-header">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div>
+              <h1 style={{ color: '#000', margin: 0 }}>DevMRI Clinical Diagnostic</h1>
+              <p style={{ color: '#666', marginTop: 4 }}>Engineering Health Report & Friction Analysis</p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontWeight: 700, color: '#000' }}>REPORT ID: MRI-{result.timestamp.replace(/[-:T.Z]/g, '').slice(0, 12)}</p>
+              <p>Generated: {new Date(result.timestamp).toLocaleString()}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ══════ COMMAND BAR ══════ */}
+        <div className="no-print hero-command-bar">
+           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="btn-hero-ghost" onClick={() => router.push('/')}>← New Scan</button>
+              <button className="btn-hero-ghost" onClick={() => router.push('/leaderboard')}>Leaderboard</button>
+              <ThemeToggle />
+           </div>
+           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="btn-hero-primary" onClick={() => { setActiveTab('surgery'); }}>
+                🚀 Create Fix PR
+              </button>
+              <button className="btn-hero-secondary" onClick={copyShareLink}>
+                {showShareToast ? '✓ Copied' : 'Share'}
+              </button>
+              <button className="btn-hero-secondary" onClick={downloadPDFReport}>
+                Export Report
+              </button>
+              <button className="btn-hero-ghost" onClick={() => setShowToolsModal(true)}>
+                ⚙️ Tools
+              </button>
+           </div>
+        </div>
+
+        {/* ══════ PREMIUM HERO DIAGNOSTIC HUB ══════ */}
+        <div className="hero-dashboard-section" style={{
+          background: 'linear-gradient(135deg, var(--bg-secondary), var(--bg-surface) 60%, var(--bg-secondary))',
+          borderRadius: 28,
+          padding: '48px 56px',
+          border: 'none',
+          display: 'grid',
+          gridTemplateColumns: '1.2fr 1fr 0.8fr',
+          gap: 48,
+          alignItems: 'center',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.04)',
+          marginBottom: 36,
+          position: 'relative',
+          overflow: 'hidden',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+        }}>
+          {/* Subtle gradient wash — Stitch "primary_fixed at 5% opacity" rule */}
+          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 20% 30%, rgba(0,229,255,0.04), transparent 60%)', pointerEvents: 'none' }} />
+          {/* Animated scan accent line */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, var(--scan-cyan), transparent)', opacity: 0.4 }} />
+          {/* HUD Background Watermark */}
+          <div style={{ position: 'absolute', top: -30, right: -30, fontSize: '9rem', opacity: 0.025, fontWeight: 950, userSelect: 'none', pointerEvents: 'none', letterSpacing: '-0.04em', color: 'var(--scan-cyan)' }}>DX_RAY</div>
+          
+          {/* Left: Patient Record / Repo Identity */}
+          <div className="hero-repo-info" style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--scan-cyan)', textTransform: 'uppercase', fontWeight: 950, letterSpacing: '0.2em', marginBottom: 8 }}>DIAGNOSTIC_SUBJECT</div>
+            <h1 style={{ fontSize: '3.5rem', fontWeight: 950, margin: 0, letterSpacing: '-0.03em', lineHeight: 1.1, color: 'var(--text-primary)' }}>
+              {result.repo.fullName.split('/')[1]}
+            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              <span style={{ fontWeight: 700 }}>{result.repo.fullName.split('/')[0]}</span>
+              <span style={{ height: 4, width: 4, borderRadius: '50%', background: 'var(--scan-cyan-dim)' }} />
+              <span>Scanned in <b>{result.scanDuration.toFixed(1)}s</b></span>
+            </div>
+            {!vsResult && (
+              <button 
+                className="btn-hero-primary" 
+                onClick={handleSpeakDiagnosis} 
+                style={{ 
+                  marginTop: 24, padding: '12px 20px', fontSize: '0.85rem', 
+                  background: isSpeaking ? 'var(--critical-red)' : 'linear-gradient(135deg, var(--scan-cyan), var(--scan-cyan-dim))' 
+                }}
+              >
+                {isSpeaking ? '⏹ Intercept Audio' : '🔊 Narrative Diagnosis'}
+              </button>
+            )}
+          </div>
+
+          {/* Center: Economic Hemorrhage Telemetry */}
+          <div 
+            className="clickable-clinical-card" 
+            onClick={() => setShowCostBreakdown(true)}
+            style={{ 
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--nav-border)',
+              borderRadius: 24, padding: 32, textAlign: 'center',
+              cursor: 'pointer', transition: 'all 0.3s cubic-bezier(0.19, 1, 0.22, 1)',
+              position: 'relative', overflow: 'hidden',
+              boxShadow: 'inset 0 0 20px rgba(0,0,0,0.02)'
+            }}
+          >
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #ff1744, transparent)', opacity: 0.5 }} />
+            
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 12 }}>
+               <div className="pulse-dot" style={{ background: '#ff1744' }}></div>
+               <span style={{ fontSize: '0.65rem', fontWeight: 950, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Cost of Inaction (Monthly)</span>
+            </div>
+            
+            <div style={{ fontSize: '3.2rem', fontWeight: 950, color: '#ff1744', letterSpacing: '-0.02em', lineHeight: 1 }}>
+              ${frictionCost.total.toLocaleString()}
+            </div>
+            
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 12, fontWeight: 700 }}>
+              ⚖️ LOST TO ENGINEERING DRAG
+            </div>
+            
+            <div style={{ marginTop: 20, fontSize: '0.6rem', color: 'var(--scan-cyan)', fontWeight: 800, textTransform: 'uppercase', textDecoration: 'underline' }}>
+              View Breakdown Overview →
+            </div>
+          </div>
+
+          {/* Right: DX Vital Core */}
+          <div style={{ textAlign: 'center', position: 'relative' }}>
+             <div style={{ 
+               width: 140, height: 140, borderRadius: '50%', margin: '0 auto',
+               border: `8px solid ${scoreColor}15`, borderTopColor: scoreColor,
+               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+               boxShadow: `0 0 40px ${scoreColor}10`,
+               transition: 'all 1.5s cubic-bezier(0.19, 1, 0.22, 1)'
+             }}>
+                <div style={{ fontSize: '3rem', fontWeight: 950, color: scoreColor, lineHeight: 1 }}>{vsResult ? result.dxScore : animatedScore}</div>
+                <div style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>VITALITY</div>
+             </div>
+             
+             <div style={{ 
+               marginTop: 20, display: 'inline-flex', padding: '6px 16px', 
+               borderRadius: 100, background: `${scoreColor}12`, 
+               border: `1.5px solid ${scoreColor}30`,
+               fontSize: '0.85rem', fontWeight: 950, color: scoreColor 
+             }}>
+               GRADE {grade}
+             </div>
+             
+             {vsResult && (
+               <div style={{ position: 'absolute', bottom: -50, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                 <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)' }}>VS</div>
+                 <div style={{ fontWeight: 900, color: getScoreColor(vsResult.dxScore) }}>{vsResult.dxScore} ({vsResult.repo.repo})</div>
+               </div>
+             )}
+          </div>
+        </div>
+
+
+        {/* ——— PREMIUM DIAGNOSTIC TABS ——— */}
+        <div style={{ 
+          display: 'flex', 
+          overflowX: 'auto', 
+          gap: 12, 
+          padding: '0 16px',
+          background: 'rgba(0,0,0,0.15)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+        }}>
+              <TabButtonUI id="overview" label="Overview" icon="📡" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="heatmap" label="Hot Spots & Dead Tissue" icon="🩻" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="cicd" label="CI/CD" icon="🔃" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="reviews" label="Reviews" icon="👥" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="deps" label="Dependencies & Security" icon="📦" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="teamxray" label="Team & Fleet Analysis" icon="🧬" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="surgery" label="Surgery" icon="🏥" currentTab={activeTab} onTabChange={setActiveTab} />
+              <TabButtonUI id="autopsy" label="Autopsy" icon="💀" currentTab={activeTab} onTabChange={setActiveTab} />
+              {vsResult && <TabButtonUI id="duel" label="Duel Comparison" icon="⚔️" currentTab={activeTab} onTabChange={setActiveTab} />}
+        </div>
+
+        {/* ———————————— TAB: Duel Comparison ———————————— */}
+        {/* ———————————— TAB: Duel Comparison ———————————— */}
+        {activeTab === 'duel' && vsResult && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div className="grid-2">
+              <div className="card" style={{ height: 400 }}>
+                 <h4 style={{ marginBottom: 24, textAlign: 'center' }}>Comparative Diagnostic Radar</h4>
+                 <ResponsiveContainer width="100%" height="80%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="80%" data={duelRadarData}>
+                      <PolarGrid stroke="var(--bg-surface)" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                      <Radar
+                        name={result.repo.fullName}
+                        dataKey="A"
+                        stroke="var(--scan-cyan)"
+                        fill="var(--scan-cyan)"
+                        fillOpacity={0.3}
+                      />
+                      <Radar
+                        name={vsResult.repo.fullName}
+                        dataKey="B"
+                        stroke="var(--critical-red)"
+                        fill="var(--critical-red)"
+                        fillOpacity={0.3}
+                      />
+                      <Tooltip contentStyle={CustomTooltip} />
+                    </RadarChart>
+                 </ResponsiveContainer>
+                 <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem' }}>
+                      <div style={{ width: 12, height: 12, background: 'var(--scan-cyan)', borderRadius: 3 }} />
+                      {result.repo.fullName}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem' }}>
+                      <div style={{ width: 12, height: 12, background: 'var(--critical-red)', borderRadius: 3 }} />
+                      {vsResult.repo.fullName}
+                    </div>
+                 </div>
+              </div>
+
+              <div className="card">
+                 <h3 style={{ marginBottom: 20 }}>Head-to-Head leaderboard</h3>
+                 {[
+                   { label: 'Overall DX Score', a: result.dxScore, b: vsResult.dxScore, unit: 'pts' },
+                   { label: 'Monthly Friction Cost', a: frictionCost.total, b: calculateFrictionCost(vsResult.cicd, vsResult.reviews, vsResult.deps, hourlyRate).total, unit: '$', inverse: true },
+                   { label: 'CI Speed (Avg)', a: result.cicd?.avgDurationMinutes || 0, b: vsResult.cicd?.avgDurationMinutes || 0, unit: 'm', inverse: true },
+                   { label: 'Review Latency', a: result.reviews?.medianReviewTimeHours || 0, b: vsResult.reviews?.medianReviewTimeHours || 0, unit: 'h', inverse: true },
+                   { label: 'Security Score', a: result.scores.deps, b: vsResult.scores.deps, unit: 'pts' },
+                 ].map((m, i) => {
+                   const aBetter = m.inverse ? m.a < m.b : m.a > m.b;
+                   const isDraw = m.a === m.b;
+                   return (
+                     <div key={i} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid rgba(0,229,255,0.06)' }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                         <span>{m.label}</span>
+                         <span style={{ color: isDraw ? 'var(--text-muted)' : aBetter ? 'var(--scan-cyan)' : 'var(--critical-red)' }}>
+                           {isDraw ? 'DRAW' : aBetter ? 'LHS LEADS' : 'RHS LEADS'}
+                         </span>
+                       </div>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                         <div style={{ flex: 1, textAlign: 'right', fontWeight: 900, fontSize: '1.2rem', color: aBetter ? 'var(--scan-cyan)' : 'var(--text-primary)' }}>
+                           {m.unit === '$' ? `$${m.a.toLocaleString()}` : `${m.a}${m.unit}`}
+                         </div>
+                         <div className="duel-vs-circle">VS</div>
+                         <div style={{ flex: 1, textAlign: 'left', fontWeight: 900, fontSize: '1.2rem', color: !aBetter && !isDraw ? 'var(--critical-red)' : 'var(--text-primary)' }}>
+                           {m.unit === '$' ? `$${m.b.toLocaleString()}` : `${m.b}${m.unit}`}
+                         </div>
+                       </div>
+                     </div>
+                   );
+                 })}
+                 
+                 <div style={{ marginTop: 24, padding: 16, background: 'linear-gradient(90deg, rgba(0,229,255,0.05), rgba(255,23,68,0.05))', borderRadius: 12, border: '1px solid rgba(0,229,255,0.1)' }}>
+                   <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                     🔎 <span style={{ color: 'var(--scan-cyan)', fontWeight: 800 }}>ECONOMIC DELTA:</span> 
+                     {frictionCost.total < calculateFrictionCost(vsResult.cicd, vsResult.reviews, vsResult.deps, hourlyRate).total
+                       ? ` LHS is cheaper to maintain. RHS has **$${(calculateFrictionCost(vsResult.cicd, vsResult.reviews, vsResult.deps, hourlyRate).total - frictionCost.total).toLocaleString()}/mo** of excess friction.`
+                       : ` RHS is cheaper to maintain. LHS has **$${(frictionCost.total - (calculateFrictionCost(vsResult.cicd, vsResult.reviews, vsResult.deps, hourlyRate).total)).toLocaleString()}/mo** of excess friction.`}
+                   </p>
+                 </div>
+              </div>
+            </div>
+
+            <div className="module-card" style={{ border: '1px solid rgba(0,229,255,0.15)', background: 'linear-gradient(135deg, rgba(0,229,255,0.05), transparent)' }}>
+               <h3 style={{ marginBottom: 8 }}>The Duel Verdict</h3>
+               <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: 1.6 }}>
+                 {result.dxScore > vsResult.dxScore 
+                   ? `Results show that ${result.repo.fullName} has a more mature developer experience pipeline, specifically outperforming in its overall workflow health.`
+                   : `${vsResult.repo.fullName} has the competitive edge in this duel, primarily due to higher metrics across core DX diagnostic modules.`}
+               </p>
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: Surgery Theatre ———————————— */}
+        {activeTab === 'surgery' && result && (
+          <SurgeryTab 
+            result={result}
+            aiDiagnosis={result.aiDiagnosis}
+            fixStatus={fixSuccess}
+            handleApplyFix={handleApplyFix}
+            fixingRec={fixPrLoading}
+            createFixPR={createFixPR}
+            triggerVocalSurgery={triggerVocalSurgery}
+            isVocalListening={isVocalListening}
+            pendingSurgery={pendingSurgery}
+            onSurgeryTriggered={() => setPendingSurgery(null)}
+          />
+        )}
+
+        {/* ———————————— TAB: Hot Spots & Dead Tissue ———————————— */}
+        {activeTab === 'heatmap' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Necrosis Integrated HUD Alert */}
+            {necrosis && necrosis.riskScore > 30 && (
+              <div style={{ background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.3)', borderRadius: 14, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                   <span style={{ fontSize: '1.2rem' }}>💀</span>
+                   <div>
+                     <div style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--critical-red)', textTransform: 'uppercase' }}>DEEP NECROSIS DETECTED</div>
+                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Scanned {necrosis.orphanedFiles.length} orphaned modules in current quadrant.</div>
+                   </div>
+                </div>
+                <button className="btn btn-ghost" style={{ fontSize: '0.7rem' }}>BIOPSY ALL</button>
+              </div>
+            )}
+
+            {/* Breadcrumb zoom path */}
+            {zoomPath.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem' }}>
+                <button className="btn btn-ghost" onClick={() => { setZoomPath([]); setDeepZoomLevel(0); }} style={{ padding: '4px 8px', fontSize: '0.75rem' }}>🏠 Root</button>
+                {zoomPath.map((p, i) => (
+                  <React.Fragment key={i}>
+                    <span style={{ color: 'var(--text-muted)' }}>›</span>
+                    <button className="btn btn-ghost" onClick={() => { setZoomPath(zoomPath.slice(0, i + 1)); setDeepZoomLevel(i + 1); }} style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--scan-cyan)' }}>{p}</button>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+
+            {/* Deep Zoom Visualization */}
+            <div className="xray-viewport" style={{ height: 600, padding: 0, position: 'relative', overflow: 'hidden', borderRadius: 20, background: 'linear-gradient(180deg, #020509 0%, #060a14 40%, #0a0e1a 100%)' }}>
+               <div className="xray-ct-ring" />
+               <div className="xray-grid-overlay" />
+               <div className="xray-scan-beam" />
+               <div className="xray-scan-beam-v" />
+               <div className="xray-scan-status"><div className="xray-scan-status-dot" /> DEEP SCAN ACTIVE</div>
+               <div className="xray-corner-hud xray-corner-tl" />
+               <div className="xray-corner-hud xray-corner-tr" />
+               <div className="xray-corner-hud xray-corner-bl" />
+               <div className="xray-corner-hud xray-corner-br" />
+               
+               {!heatmap || heatmap.hotspots.length === 0 ? (
+                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+                   <EmptyClinicalState icon="☢️" badge="NO_THERMAL_DATA" title="Heatmap Logic Suppressed" description="No significant commit frequency detected." />
+                 </div>
+               ) : (
+                 <div style={{ padding: '24px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 14, height: '100%', alignContent: 'start', overflowY: 'auto' }}>
+                    {heatmap.hotspots.map((h, i) => (
+                      <div key={i} className={`xray-file-card ${h.risk === 'critical' ? 'xray-file-hot' : 'xray-file-cool'}`} style={{ '--glow-color': h.risk === 'critical' ? 'rgba(255,23,68,0.4)' : 'rgba(0,229,255,0.2)' } as any}>
+                        <div className="xray-file-name">{h.path.split('/').pop()}</div>
+                        <div className="xray-file-stats"><span>🔄 {h.churn}</span><span style={{ color: h.risk === 'critical' ? '#ff3d60' : '#00e5ff' }}>${h.cost}</span></div>
+                      </div>
+                    ))}
+                 </div>
+               )}
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: CI/CD ———————————— */}
+        {activeTab === 'cicd' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {!cicd ? (
+              <EmptyClinicalState icon="⚙️" badge="SENSOR_OFFLINE" title="No CI/CD Tracked" description="Unable to analyze pipelines." />
+            ) : (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                 <div className="grid-3">
+                   <div className="card" style={{ textAlign: 'center' }}>
+                     <p style={{ color: 'var(--text-muted)', fontSize: '0.6rem', textTransform: 'uppercase' }}>Stability</p>
+                     <p style={{ fontSize: '2.5rem', fontWeight: 950, color: 'var(--health-green)' }}>{cicd.successRate}%</p>
+                   </div>
+                   <div className="card" style={{ textAlign: 'center' }}>
+                     <p style={{ color: 'var(--text-muted)', fontSize: '0.6rem', textTransform: 'uppercase' }}>Latency</p>
+                     <p style={{ fontSize: '2.5rem', fontWeight: 950 }}>{cicd.avgDurationMinutes}m</p>
+                   </div>
+                   <div className="card" style={{ textAlign: 'center' }}>
+                     <p style={{ color: 'var(--text-muted)', fontSize: '0.6rem', textTransform: 'uppercase' }}>Stages</p>
+                     <p style={{ fontSize: '2.5rem', fontWeight: 950, color: 'var(--scan-cyan)' }}>{cicd.stages.length}</p>
+                   </div>
+                 </div>
+                 <div className="card" style={{ height: 350 }}>
+                   <h4 style={{ marginBottom: 20 }}>Build Velocity Trend</h4>
+                   <ResponsiveContainer width="100%" height="80%">
+                      <LineChart data={cicd.buildTimeTrend}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--bg-surface)" />
+                        <XAxis dataKey="runNumber" hide />
+                        <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                        <Tooltip contentStyle={CustomTooltip} />
+                        <Line type="monotone" dataKey="durationMinutes" stroke="var(--scan-cyan)" strokeWidth={3} dot={false} />
+                      </LineChart>
+                   </ResponsiveContainer>
+                 </div>
+               </div>
+            )}
+          </div>
+        )}
+
+        {/* ———————————— TAB: Reviews ———————————— */}
+        {activeTab === 'reviews' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {!reviews ? (
+              <EmptyClinicalState icon="👀" badge="INTAKE_REQUIRED" title="No Review Telemetry" description="Requires PR interactions." />
+            ) : (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                 <div className="grid-2">
+                   <div className="card">
+                     <h4 style={{ marginBottom: 16 }}>Review Concentration</h4>
+                     <ResponsiveContainer width="100%" height={220}>
+                       <BarChart data={reviews.reviewerLoad.slice(0, 5)}>
+                         <XAxis dataKey="login" tick={{ fontSize: 10 }} />
+                         <Tooltip contentStyle={CustomTooltip} />
+                         <Bar dataKey="reviewCount" fill="var(--scan-cyan)" radius={[4, 4, 0, 0]} />
+                       </BarChart>
+                     </ResponsiveContainer>
+                   </div>
+                   <div className="card">
+                     <h4 style={{ marginBottom: 16 }}>Key Metrics</h4>
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Median Response:</span> <b>{reviews.medianReviewTimeHours}h</b></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Load Distribution:</span> <b>{reviews.giniCoefficient}</b></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>XL PR Ratio:</span> <b>{reviews.xlPrPercentage}%</b></div>
+                     </div>
+                   </div>
+                 </div>
+               </div>
+            )}
+          </div>
+        )}
+
+        {/* ———————————— TAB: Dependencies & Security ———————————— */}
+        {activeTab === 'deps' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {!deps ? (
+              <EmptyClinicalState icon="📦" badge="MISSING_MANIFEST" title="No Dependencies" description="Missing package telemetry." />
+            ) : (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                 <div className="grid-4">
+                   <div className="card" style={{ textAlign: 'center' }}>
+                     <span className="badge badge-critical">Critical</span>
+                     <p style={{ fontSize: '2rem', fontWeight: 900, marginTop: 8 }}>{deps.vulnerabilities.critical}</p>
+                   </div>
+                   <div className="card" style={{ textAlign: 'center' }}>
+                     <span className="badge badge-high">High</span>
+                     <p style={{ fontSize: '2rem', fontWeight: 900, marginTop: 8 }}>{deps.vulnerabilities.high}</p>
+                   </div>
+                   {security && (
+                      <div className="card" style={{ gridColumn: 'span 2' }}>
+                        <h4 style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 12 }}>🔒 Security Policy</h4>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                           <div className="badge-glow" style={{ fontSize: '0.6rem' }}>{security.branchProtection ? 'BRANCH_PROTECTED' : 'BRANCH_OPEN'}</div>
+                           <div className="badge-glow" style={{ fontSize: '0.6rem', opacity: security.requireReviews ? 1 : 0.4 }}>REVIEWS_REQUIRED</div>
+                        </div>
+                      </div>
+                   )}
+                 </div>
+               </div>
+            )}
+          </div>
+        )}
+
+        {/* ———————————— TAB: Team & Fleet ———————————— */}
+        {activeTab === 'teamxray' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {teamData && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+                 {teamData.domainSummary.map((d: any, i: number) => (
+                   <div key={i} className="module-card" style={{ borderLeft: `4px solid ${d.color}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                         <span style={{ fontSize: '1.2rem' }}>{d.icon}</span>
+                         <span className="badge-glow" style={{ color: d.color }}>{d.memberCount} dev</span>
+                      </div>
+                      <div style={{ fontWeight: 800 }}>{d.name}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 4 }}>{d.totalFileTouches} touches</div>
+                   </div>
+                 ))}
+              </div>
+            )}
+
+            <div className="card">
+               <h4 style={{ marginBottom: 20 }}>Organizational Records</h4>
+               {scanHistory.length < 2 ? (
+                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Insufficient fleet data.</p>
+               ) : (
+                 <div className="grid-3">
+                    <div style={{ textAlign: 'center' }}>
+                       <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Fleet Avg</div>
+                       <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--scan-cyan)' }}>{Math.round(scanHistory.reduce((a, b) => a + b.score, 0) / scanHistory.length)}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                       <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Count</div>
+                       <div style={{ fontSize: '2rem', fontWeight: 950 }}>{scanHistory.length}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                       <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Variance</div>
+                       <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--warning-amber)' }}>{Math.max(...scanHistory.map(h => h.score)) - Math.min(...scanHistory.map(h => h.score))}</div>
+                    </div>
+                 </div>
+               )}
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: Overview Consolidated ———————————— */}
+        {activeTab === 'overview' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div className="module-card clinical-case-summary" style={{
+              background: 'rgba(var(--scan-cyan-rgb), 0.05)',
+              border: '1px solid rgba(var(--scan-cyan-rgb), 0.2)',
+              padding: '24px 28px',
+              borderRadius: 20
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.65rem', fontWeight: 900, color: 'var(--scan-cyan)', textTransform: 'uppercase' }}>
+                    <span className="pulse-dot" style={{ background: 'var(--scan-cyan)' }} /> PRIMARY_DIAGNOSIS
+                  </div>
+                  <h3 style={{ margin: '8px 0 0', fontSize: '1.5rem', fontWeight: 950 }}>Grade {grade} Repository Pathology</h3>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>DX-{result.timestamp.replace(/[^0-9]/g, '').slice(0, 8)}</div>
+                </div>
+              </div>
+              <div className="grid-3" style={{ gap: 32 }}>
+                <div>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Daily Friction</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 950, color: 'var(--critical-red)' }}>${frictionCost.total.toLocaleString()}</div>
+                </div>
+                <div style={{ borderLeft: '1px solid var(--nav-border)', paddingLeft: 32 }}>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Velocity</div>
+                  <div className="badge-glow" style={{ marginTop: 8 }}>{dora?.overallClassification || 'LOW'}</div>
+                </div>
+                <div style={{ borderLeft: '1px solid var(--nav-border)', paddingLeft: 32 }}>
+                  <button onClick={() => setActiveTab('surgery')} className="btn btn-secondary" style={{ width: '100%', height: 44 }}>START_SURGERY</button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="card">
+              <h4 style={{ marginBottom: 16 }}>📜 History</h4>
+              <div style={{ display: 'flex', gap: 12, overflowX: 'auto' }}>
+                 {scanHistory.filter(h => h.repo === result.repo.fullName).slice(0, 5).map((s, i) => (
+                   <div key={i} className="module-card" style={{ minWidth: 100, textAlign: 'center' }}>
+                      <div style={{ fontWeight: 900, color: getScoreColor(s.score) }}>{s.score}</div>
+                      <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}>{new Date(s.timestamp).toLocaleDateString()}</div>
+                   </div>
+                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: Autopsy ———————————— */}
+        {activeTab === 'autopsy' && (
+          <div className="animate-fade-in">
+             <CodeAutopsy dxScore={dxScore} grade={grade} frictionCost={frictionCost} cicd={result.cicd} reviews={result.reviews} deps={result.deps} necrosis={result.necrosis} busFactor={result.busFactor} heatmap={heatmap} repoName={result.repo.fullName} />
+          </div>
+        )}
+        {/* ———————————— TAB: X-Ray Deep Zoom (Friction Heatmap) ———————————— */}
+
+        {activeTab === 'heatmap' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Necrosis (Dead Code) HUD Alert — High Density Integration */}
+            {necrosis && necrosis.riskScore > 30 && (
+              <div style={{ background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.3)', borderRadius: 14, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                   <span style={{ fontSize: '1.2rem' }}>💀</span>
+                   <div>
+                     <div style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--critical-red)', textTransform: 'uppercase' }}>DEEP NECROSIS DETECTED</div>
+                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Scanned {necrosis.orphanedFiles.length} orphaned modules in current quadrant.</div>
+                   </div>
+                </div>
+                <button className="btn btn-ghost" style={{ fontSize: '0.7rem' }}>BIOPSY ALL</button>
+              </div>
+            )}
+            {/* Breadcrumb zoom path */}
+            {zoomPath.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem' }}>
+                <button className="btn btn-ghost" onClick={() => { setZoomPath([]); setDeepZoomLevel(0); }} style={{ padding: '4px 8px', fontSize: '0.75rem' }}>🏠 Root</button>
+                {zoomPath.map((p, i) => (
+                  <React.Fragment key={i}>
+                    <span style={{ color: 'var(--text-muted)' }}>›</span>
+                    <button className="btn btn-ghost" onClick={() => { setZoomPath(zoomPath.slice(0, i + 1)); setDeepZoomLevel(i + 1); }} style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--scan-cyan)' }}>{p}</button>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+
+            {/* Deep Zoom Visualization */}
+            <div className="xray-viewport" style={{ height: 600, padding: 0, position: 'relative', overflow: 'hidden', borderRadius: 20, background: 'linear-gradient(180deg, #020509 0%, #060a14 40%, #0a0e1a 100%)' }}>
+              {/* CT Ring — rotating scan ring border */}
+              <div className="xray-ct-ring" />
+
+              {/* Animated grid overlay with perspective */}
+              <div className="xray-grid-overlay" />
+
+              {/* Dual Scanning beams — crosshair sweep */}
+              <div className="xray-scan-beam" />
+              <div className="xray-scan-beam-v" />
+
+              {/* Scan Status Badge — top center */}
+              <div className="xray-scan-status">
+                <div className="xray-scan-status-dot" />
+                DEEP SCAN ACTIVE
+              </div>
+
+              {/* Corner HUD markers */}
+              <div className="xray-corner-hud xray-corner-tl" />
+              <div className="xray-corner-hud xray-corner-tr" />
+              <div className="xray-corner-hud xray-corner-bl" />
+              <div className="xray-corner-hud xray-corner-br" />
+
+              {/* Telemetry HUD — top left */}
+              <div className="xray-telemetry">
+                <div>SCAN_TIME: {new Date().toLocaleTimeString()}</div>
+                <div>FREQ: 2.4 GHz <span className="xray-telemetry-blink">▮</span></div>
+                <div>HOTSPOTS: {heatmap?.hotspots?.length || 0}</div>
+                <div>EXPOSURE: {Math.min(100, (heatmap?.hotspots?.length || 0) * 8)}%</div>
+              </div>
+
+              {/* Depth gauge — right side */}
+              <div className="xray-depth-gauge">
+                <div className="xray-depth-label">DEPTH</div>
+                <div className="xray-depth-bar">
+                  <div className="xray-depth-fill" style={{ height: `${Math.min(100, (heatmap?.hotspots?.length || 0) * 8)}%` }} />
+                </div>
+                <div className="xray-depth-value">{Math.min(100, (heatmap?.hotspots?.length || 0) * 8)}%</div>
+              </div>
+
+              {/* Exposure indicator — bottom right */}
+              <div className="xray-exposure">
+                EXP {Math.min(100, (heatmap?.hotspots?.filter((h: any) => h.risk === 'critical' || h.risk === 'high').length || 0) * 15)}mSv
+              </div>
+
+              {/* File blocks with radiation glow */}
+              {!heatmap || heatmap.hotspots.length === 0 ? (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+                  <EmptyClinicalState 
+                    icon="☢️"
+                    badge="NO_THERMAL_DATA"
+                    title="Heatmap Logic Suppressed"
+                    description="No significant commit frequency or file churn detected in the last scan period. The thermal engine requires a history of active file modifications to project friction hotspots."
+                    suggestedRepos={['vercel/next.js', 'facebook/react']}
+                  />
+                </div>
+              ) : (
+                <div style={{ padding: '24px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 14, height: '100%', alignContent: 'start', overflowY: 'auto', paddingRight: 60 }}>
+                {(heatmap?.hotspots || []).filter(h => {
+                  if (zoomPath.length === 0) return true;
+                  return h.path.startsWith(zoomPath.join('/'));
+                }).map((h, i) => {
+                  const intensity = Math.min(1, h.churn / 50);
+                  const isHot = h.risk === 'critical' || h.risk === 'high';
+                  const glowColor = isHot ? `rgba(255,23,68,${0.3 + intensity * 0.5})` : `rgba(0,229,255,${0.1 + intensity * 0.3})`;
+                  const fileName = h.path.split('/').pop() || h.path;
+                  const dirParts = h.path.split('/').slice(0, -1);
+                  
+                  return (
+                    <div
+                      key={i}
+                      className={`xray-file-card ${isHot ? 'xray-file-hot' : 'xray-file-cool'}`}
+                      onClick={() => {
+                        setSelectedHotspot({ ...h, name: fileName, size: h.complexity });
+                        if (dirParts.length > 0 && deepZoomLevel < dirParts.length) {
+                          setZoomPath(dirParts);
+                          setDeepZoomLevel(dirParts.length);
+                        }
+                      }}
+                      onMouseEnter={() => setHoveredFile(h)}
+                      onMouseLeave={() => setHoveredFile(null)}
+                      style={{
+                        animationDelay: `${i * 0.08}s`,
+                        '--glow-color': glowColor,
+                        '--intensity': intensity,
+                      } as any}
+                    >
+                      {/* Radiation halo for hot files */}
+                      {isHot && (
+                        <>
+                          <div className="xray-radiation-halo" style={{
+                            background: `radial-gradient(circle, rgba(255,23,68,${intensity * 0.2}) 0%, transparent 70%)`,
+                            animationDuration: `${3 - intensity * 1.5}s`,
+                          }} />
+                          {/* Danger zone ripples — expanding rings */}
+                          <div className="xray-danger-ripple" />
+                          <div className="xray-danger-ripple" />
+                          <div className="xray-danger-ripple" />
+                        </>
+                      )}
+                      {/* Bleeding indicator */}
+                      {h.churn > 30 && <div className="xray-bleeding-dot" title="Internal Bleeding — High co-change frequency" />}
+                      
+                      {/* File icon */}
+                      <div className="xray-file-icon" style={{ filter: isHot ? 'drop-shadow(0 0 8px rgba(255,23,68,0.6))' : 'drop-shadow(0 0 6px rgba(0,229,255,0.3))' }}>
+                        {isHot ? '🔥' : fileName.endsWith('.ts') || fileName.endsWith('.tsx') ? '📄' : fileName.endsWith('.yml') || fileName.endsWith('.yaml') ? '⚙️' : fileName.endsWith('.json') ? '📊' : fileName.endsWith('.css') ? '🎨' : '📁'}
+                      </div>
+                      
+                      {/* File name */}
+                      <div className="xray-file-name">{fileName}</div>
+                      
+                      {/* Stats row */}
+                      <div className="xray-file-stats">
+                        <span>🔄 {h.churn}</span>
+                        <span style={{ color: isHot ? '#ff3d60' : '#00e5ff' }}>${h.cost}</span>
+                      </div>
+                      
+                      {/* Intensity bar */}
+                      <div className="xray-intensity-track">
+                        <div className="xray-intensity-fill" style={{ 
+                          width: `${Math.min(100, intensity * 100)}%`,
+                          background: isHot 
+                            ? 'linear-gradient(90deg, #ff3d60, #ff6d00)' 
+                            : 'linear-gradient(90deg, #00e5ff, #00e676)',
+                        }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              )}
+
+              {/* Hover info panel — glassmorphic HUD */}
+              {hoveredFile && (
+                <div className="xray-hover-panel">
+                  <div className="xray-hover-left">
+                    <div className="xray-hover-path">{hoveredFile.path}</div>
+                    <div className="xray-hover-meta">Owner: @{hoveredFile.owner} · {hoveredFile.churn} commits · Complexity: {hoveredFile.complexity}</div>
+                  </div>
+                  <div className="xray-hover-right">
+                    <div className="xray-hover-cost" style={{ color: hoveredFile.risk === 'critical' ? '#ff3d60' : '#dfe2eb' }}>${hoveredFile.cost}/mo</div>
+                    {hoveredFile.churn > 30 && <div className="xray-hover-bleed">🩸 Internal Bleeding Detected</div>}
+                  </div>
+                </div>
+              )}
+
+              {/* Legend bar */}
+              <div className="xray-legend">
+                <span><span className="xray-legend-dot" style={{ background: '#00e676' }} /> Healthy</span>
+                <span><span className="xray-legend-dot" style={{ background: '#ff3d60' }} /> Inflammation</span>
+                <span><span className="xray-legend-dot xray-legend-scanning" /> Scanning</span>
+              </div>
+            </div>
+              {/* Grid overlay */}
+
+            {/* Treemap + Hotspot Ranking — X-Ray Styled */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              {/* Friction Matrix — X-Ray Panel */}
+              <div className="xray-panel heatmap-xray-panel" style={{ height: 380, position: 'relative', overflow: 'hidden', borderRadius: 16, padding: 0 }}>
+                {/* Scan grid overlay */}
+                <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(0,229,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,229,255,0.02) 1px, transparent 1px)', backgroundSize: '30px 30px', pointerEvents: 'none', zIndex: 1 }} />
+                {/* Moving scan line */}
+                <div style={{ position: 'absolute', left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, rgba(0,229,255,0.4), transparent)', animation: 'surgeryScanLine 5s linear infinite', zIndex: 2, pointerEvents: 'none' }} />
+                {/* Header */}
+                <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,229,255,0.06)', position: 'relative', zIndex: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#00e5ff', letterSpacing: '0.12em', textTransform: 'uppercase' as const, fontFamily: 'var(--font-mono)' }}>☢️ FRICTION MATRIX</span>
+                  </div>
+                  <div style={{ fontSize: '0.55rem', color: 'rgba(0,229,255,0.4)', fontFamily: 'var(--font-mono)' }}>
+                    {heatmap?.hotspots?.length || 0} TARGETS
+                  </div>
+                </div>
+                {/* Treemap */}
+                <div style={{ padding: '8px 12px', height: 'calc(100% - 52px)', position: 'relative', zIndex: 3 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <Treemap
+                      data={heatmap?.hotspots.map(h => ({ name: h.path.split('/').pop(), size: h.complexity, cost: h.cost, path: h.path, owner: h.owner, risk: h.risk, churn: h.churn })) || []}
+                      dataKey="size" aspectRatio={4 / 3} stroke="rgba(0,229,255,0.2)"
+                      fill="rgba(2,10,24,0.9)"
+                      onClick={(data) => setSelectedHotspot(data)}
+                      content={(props: any) => {
+                        const { x, y, width, height, name, risk } = props;
+                        if (width < 34 || height < 24) return null;
+                        const isCritical = risk === 'critical' || risk === 'high';
+                        return (
+                          <g style={{ cursor: 'pointer' }}>
+                            <rect
+                              x={x} y={y} width={width} height={height} 
+                              fill={isCritical ? 'rgba(255,23,68,0.2)' : 'rgba(5,15,35,0.95)'}
+                              stroke={isCritical ? 'rgba(255,23,68,0.5)' : 'rgba(0,229,255,0.3)'}
+                              strokeWidth={1.5}
+                            />
+                            <text
+                              x={x + width / 2} y={y + height / 2}
+                              textAnchor="middle" dominantBaseline="middle"
+                              fill={isCritical ? '#ff5252' : '#00e5ff'} 
+                              fontSize={Math.max(10, Math.min(width / 7, 13))}
+                              fontWeight={950}
+                              style={{ pointerEvents: 'none', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+                            >
+                              {name}
+                            </text>
+                          </g>
+                        );
+                      }}
+                    >
+                      <Tooltip content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div style={{ background: 'rgba(5,8,16,0.95)', border: '1px solid rgba(0,229,255,0.2)', borderRadius: 10, padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                              <p style={{ fontWeight: 800, color: '#00e5ff', marginBottom: 4 }}>{data.path}</p>
+                              <p style={{ color: 'rgba(255,255,255,0.6)' }}>🔄 {data.churn} commits · <span style={{ color: data.risk === 'critical' ? '#ff1744' : '#ffab00' }}>${data.cost}/mo</span></p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }} />
+                    </Treemap>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Hotspot Ranking — X-Ray Panel */}
+              <div className="hotspot-xray-panel" style={{ height: 380, borderRadius: 16, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {/* Header */}
+                <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(0,229,255,0.06)', flexShrink: 0 }}>
+                  <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#00e5ff', letterSpacing: '0.12em', textTransform: 'uppercase' as const, fontFamily: 'var(--font-mono)' }}>🎯 HOTSPOT RANKING</span>
+                  <span style={{ fontSize: '0.55rem', color: 'rgba(255,23,68,0.6)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    SEVERITY ORDERED
+                  </span>
+                </div>
+                {/* Scrollable list */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }} className="custom-scrollbar">
+                  {heatmap?.hotspots.map((h, i: number) => {
+                    const isHot = h.risk === 'critical' || h.risk === 'high';
+                    const glowColor = h.risk === 'critical' ? 'rgba(255,23,68,0.15)' : h.risk === 'high' ? 'rgba(255,171,0,0.1)' : 'rgba(0,229,255,0.06)';
+                    const borderColor = h.risk === 'critical' ? 'rgba(255,23,68,0.3)' : h.risk === 'high' ? 'rgba(255,171,0,0.2)' : 'rgba(0,229,255,0.1)';
+                    const dotColor = h.risk === 'critical' ? '#ff1744' : h.risk === 'high' ? '#ffab00' : '#00e5ff';
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => setSelectedHotspot({ ...h, name: h.path.split('/').pop(), size: h.complexity })}
+                        style={{
+                          padding: '10px 14px',
+                          marginBottom: 6,
+                          borderRadius: 10,
+                          background: glowColor,
+                          border: `1px solid ${borderColor}`,
+                          cursor: 'pointer',
+                          transition: 'all 0.25s ease',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
+                          (e.currentTarget as HTMLElement).style.boxShadow = `0 0 16px ${glowColor}`;
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
+                          (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden', flex: 1 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0, boxShadow: isHot ? `0 0 6px ${dotColor}` : 'none' }} />
+                          <span className="hotspot-item-path" style={{ fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }}>{h.path}</span>
+                        </div>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: isHot ? '#ff1744' : '#00e5ff', fontWeight: 800, flexShrink: 0, marginLeft: 12 }}>${h.cost}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* X-Ray Insight Banner */}
+            <div className="xray-insight-banner" style={{ borderRadius: 14, padding: '16px 20px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,171,0,0.01) 1px, transparent 1px), linear-gradient(90deg, rgba(255,171,0,0.01) 1px, transparent 1px)', backgroundSize: '20px 20px', pointerEvents: 'none' }} />
+               <h4 style={{ color: '#ffab00', marginBottom: 8, fontSize: '0.75rem', fontWeight: 900, letterSpacing: '0.1em', textTransform: 'uppercase' as const, fontFamily: 'var(--font-mono)', position: 'relative' }}>💡 X-RAY INSIGHT</h4>
+               <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: 1.6, position: 'relative' }}>
+                 Files with <span style={{ color: '#ff1744', fontWeight: 700 }}>🩸 Internal Bleeding</span> markers indicate co-change patterns — they are frequently modified alongside other buggy files. These are the surgical targets that will have the highest impact on overall codebase health.
+               </p>
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: Overview Consolidated ———————————— */}
+        {activeTab === 'overview' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Clinical Case Summary */}
+            <div className="module-card clinical-case-summary" style={{
+              background: 'rgba(var(--scan-cyan-rgb), 0.05)',
+              border: '1px solid rgba(var(--scan-cyan-rgb), 0.2)',
+              padding: '24px 28px',
+              borderRadius: 20,
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
+              <div style={{ position: 'absolute', top: 0, right: 0, width: 80, height: 80, background: 'linear-gradient(225deg, var(--scan-cyan) 0%, transparent 60%)', opacity: 0.15 }} />
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.65rem', fontWeight: 900, color: 'var(--scan-cyan)', letterSpacing: '0.15em', textTransform: 'uppercase' }}>
+                    <span className="pulse-dot" style={{ background: 'var(--scan-cyan)', width: 8, height: 8, borderRadius: '50%' }} />
+                    PRIMARY DIAGNOSTIC SUMMARY
+                  </div>
+                  <h3 style={{ margin: '8px 0 0', fontSize: '1.6rem', fontWeight: 950, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+                    {grade}-Grade Repository {dxScore < 40 ? 'Pathology' : dxScore < 70 ? 'Inflammation' : 'Condition'} Detected
+                  </h3>
+                </div>
+                <div style={{ textAlign: 'right', minWidth: 160 }}>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', opacity: 0.7 }}>CASE_ID: DX-{result.timestamp.replace(/[^0-9]/g, '').slice(0, 8)}</div>
+                  <div style={{ fontSize: '0.65rem', color: dxScore < 40 ? 'var(--critical-red)' : dxScore < 70 ? 'var(--warning-orange)' : 'var(--health-green)', fontWeight: 800, fontFamily: 'var(--font-mono)', marginTop: 4 }}>STATUS: {dxScore > 70 ? 'STABLE' : dxScore > 40 ? 'INFLAMED' : 'CRITICAL'}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 32 }}>
+                <div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 12 }}>ECONOMIC_HEMORRHAGE</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontSize: '1.8rem', fontWeight: 950, color: 'var(--critical-red)' }}>${frictionCost.total.toLocaleString()}</span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>/MO</span>
+                  </div>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 8, lineHeight: 1.4 }}>
+                    Active drain due to {frictionCost.ciBottleneck.cost > frictionCost.reviewDelay.cost ? 'CI/CD infrastructure' : 'code review'} bottlenecks.
+                  </p>
+                </div>
+                
+                <div style={{ borderLeft: '1px solid var(--nav-border)', paddingLeft: 32 }}>
+                   {/* DORA Highlights */}
+                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 12 }}>DORA_SURGICAL_VELOCITY</div>
+                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      <span className="badge-glow" style={{ fontSize: '0.6rem' }}>{dora?.overallClassification || 'LOW'} VELOCITY</span>
+                      <span className="badge-glow" style={{ fontSize: '0.6rem', background: 'rgba(255,23,68,0.1)', color: 'var(--critical-red)', borderColor: 'rgba(255,23,68,0.2)' }}>{dora?.changeFailureRate.classification || 'VOLATILE'} STABILITY</span>
+                   </div>
+                </div>
+
+                <div style={{ borderLeft: '1px solid var(--nav-border)', paddingLeft: 32 }}>
+                   {/* Actions */}
+                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 12 }}>INDUCTION_PROTOCOL</div>
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <button onClick={() => setActiveTab('surgery')} style={{ background: 'var(--scan-cyan)', color: '#000', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer' }}>START EMERGENCY SURGERY</button>
+                      <button onClick={() => {}} style={{ background: 'transparent', color: 'var(--scan-cyan)', border: '1px solid var(--scan-cyan)', borderRadius: 8, padding: '8px 12px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}>🔊 VOICE BRIEFING</button>
+                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Health Journey History — Integrated as a Sub-Module */}
+            <div className="card">
+              <h4 style={{ marginBottom: 16 }}>📜 Patient Record History</h4>
+              {(() => {
+                const history = JSON.parse(localStorage.getItem('devmri_history') || '[]');
+                const repoHistory = history.filter((h: any) => h.repo === result.repo.fullName);
+                const sortedHistory = repoHistory.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                
+                if (sortedHistory.length === 0) {
+                  return <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No previous diagnostic records. Start surgery to improve code health.</p>;
+                }
+
+                return (
+                  <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 10 }}>
+                    {sortedHistory.slice(0, 5).map((scan: any, idx: number) => (
+                      <div key={idx} className="module-card" style={{ minWidth: 140, textAlign: 'center', padding: '12px' }}>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 900, color: getScoreColor(scan.dxScore) }}>{scan.dxScore}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 4 }}>{new Date(scan.date).toLocaleDateString()}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* DX Badge Integration — Integrated as a Sub-Module */}
+            <div className="card" style={{ background: 'rgba(var(--bg-surface-rgb), 0.5)' }}>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h4 style={{ margin: 0 }}>🩺 Clinical Badge Export</h4>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: 4 }}>Inject this diagnostic score into your repository metadata (README).</p>
+                  </div>
+                  <img src={`/api/badge?score=${dxScore}&repo=${result.repo.fullName}`} alt="DX Badge" style={{ height: 24 }} />
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: CI/CD ———————————— */}
+        {activeTab === 'cicd' && !cicd && (
+          <EmptyClinicalState 
+            icon="⚙️"
+            badge="SENSOR_OFFLINE"
+            title="No CI/CD Pipeline Detected"
+            description="This repository lacks GitHub Actions workflows or integrated pipeline telemetry. Sensors cannot detect build velocity, failure heatmaps, or bottlenecked stages."
+            suggestedRepos={['vercel/next.js', 'facebook/react', 'supabase/supabase']}
+          />
+        )}
+        {activeTab === 'cicd' && cicd && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* CI/CD Surgical Overview — Stitch Premium */}
+            <div className="clinical-card-glass" style={{
+              background: 'linear-gradient(135deg, rgba(var(--bg-secondary-rgb), 0.6), rgba(var(--bg-surface-rgb), 0.4))',
+              backdropFilter: 'blur(20px)',
+              borderRadius: 24, padding: '32px 40px',
+              border: '1px solid var(--nav-border)',
+              display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) 1px 1fr 1px 1fr', gap: 40, alignItems: 'center',
+              position: 'relative', overflow: 'hidden'
+            }}>
+              {/* Scanline overlay */}
+              <div style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,229,255,0.01) 2px)', pointerEvents: 'none' }} />
+              
+              <div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 16 }}>PIPELINE_STABILITY</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+                  <span style={{ fontSize: '3.5rem', fontWeight: 950, color: cicd.successRate > 90 ? 'var(--health-green)' : 'var(--warning-amber)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.successRate}%</span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>SUCCESS RATE</span>
+                </div>
+              </div>
+
+              <div style={{ width: '1px', background: 'var(--nav-border)', height: 60 }}></div>
+
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 16 }}>AVG_EXECUTION_TIME</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, justifyContent: 'center' }}>
+                  <span style={{ fontSize: '3.5rem', fontWeight: 950, color: cicd.avgDurationMinutes > 15 ? 'var(--critical-red)' : 'var(--text-primary)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.avgDurationMinutes}m</span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>VELOCITY</span>
+                </div>
+              </div>
+
+              <div style={{ width: '1px', background: 'var(--nav-border)', height: 60 }}></div>
+
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 16 }}>ACTIVE_WORKFLOWS</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, justifyContent: 'flex-end' }}>
+                  <span style={{ fontSize: '3.5rem', fontWeight: 950, color: 'var(--scan-cyan)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.stages.length}</span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>NODES SCAN</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid-2" style={{ gap: 24 }}>
+              {/* Build Time Trend Chart — Stitch Premium Card */}
+              <div className="card" style={{ 
+                height: 420, 
+                background: 'linear-gradient(145deg, var(--bg-secondary), var(--bg-surface))',
+                border: 'none',
+                boxShadow: '0 12px 48px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.04)',
+                padding: '32px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--scan-cyan)' }} />
+                      Build Velocity History
+                    </h4>
+                  </div>
+                  <div style={{ 
+                    fontSize: '0.7rem', padding: '6px 14px', borderRadius: 10,
+                    background: cicd.trendDirection === 'improving' ? 'rgba(0,230,118,0.08)' : 'rgba(255,23,68,0.08)',
+                    color: cicd.trendDirection === 'improving' ? 'var(--health-green)' : 'var(--critical-red)',
+                    fontWeight: 900, border: `1px solid ${cicd.trendDirection === 'improving' ? 'rgba(0,230,118,0.2)' : 'rgba(255,23,68,0.2)'}`
+                  }}>
+                    {cicd.trendDirection === 'improving' ? 'TREND: IMPROVING' : 'TREND: AT RISK'} ({cicd.trendSlope > 0 ? '+' : ''}{cicd.trendSlope}m/run)
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height="75%">
+                  <LineChart data={cicd.buildTimeTrend}>
+                    <defs>
+                      <linearGradient id="velocityGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--scan-cyan)" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="var(--scan-cyan)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="4 4" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                    <XAxis dataKey="runNumber" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} axisLine={false} tickLine={false} strokeDasharray="4 4" />
+                    <Tooltip contentStyle={CustomTooltip} />
+                    <Line type="monotone" dataKey="durationMinutes" stroke="var(--scan-cyan)" strokeWidth={3} dot={{ fill: 'var(--scan-cyan)', r: 4, strokeWidth: 0 }} activeDot={{ r: 7, stroke: 'rgba(255,255,255,0.2)', strokeWidth: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Failure Heatmap Grid — Stitch Premium Card */}
+              <div className="card" style={{ 
+                height: 420, 
+                background: 'linear-gradient(145deg, var(--bg-secondary), var(--bg-surface))',
+                border: 'none',
+                boxShadow: '0 12px 48px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.04)',
+                padding: '32px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+                   <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: 10 }}>
+                     <span style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--critical-red)' }} />
+                     Failure Chronogram
+                   </h4>
+                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Peak Fragility: {cicd.peakFailureDay} @ {cicd.peakFailureHour}:00</div>
+                </div>
+                
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 8, paddingLeft: 30 }}>
+                    {[0, 6, 12, 18, 23].map(h => (
+                      <div key={h} style={{ flex: 1, textAlign: 'left', fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 800 }}>{h}h</div>
+                    ))}
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingBottom: 10, paddingTop: 2 }}>
+                      {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+                        <div key={i} style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, width: 24 }}>{day}</div>
+                      ))}
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {cicd.failureHeatmap.map((dayRow, dayIdx: number) => (
+                        <div key={dayIdx} style={{ display: 'flex', gap: 3, flex: 1 }}>
+                          {dayRow.map((val, hourIdx: number) => {
+                            const intensity = Math.min(1, val / 4);
+                            return (
+                              <div 
+                                key={hourIdx} 
+                                style={{
+                                  flex: 1,
+                                  background: val === 0 ? 'rgba(255,255,255,0.02)' : `rgba(255, 23, 68, ${0.15 + intensity * 0.85})`,
+                                  borderRadius: 3,
+                                  boxShadow: val > 2 ? '0 0 10px rgba(255, 23, 68, 0.2)' : 'none',
+                                  transition: 'all 0.2s ease',
+                                }}
+                                title={`${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayIdx]} @ ${hourIdx}:00: ${val} failures`}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 24, display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'flex-end' }}>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Severity:</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {[0, 0.2, 0.5, 0.8, 1].map(i => (
+                        <div key={i} style={{ width: 12, height: 12, borderRadius: 2, background: i === 0 ? 'rgba(255,255,255,0.02)' : `rgba(255, 23, 68, ${0.15 + i * 0.85})` }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Workflow Stages — Sortable Stitch Table */}
+            <div className="card" style={{ 
+              background: 'linear-gradient(180deg, var(--bg-secondary), var(--bg-surface))',
+              border: 'none',
+              boxShadow: '0 12px 48px rgba(0,0,0,0.1)',
+              padding: '32px 40px',
+              borderRadius: 24
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 950, letterSpacing: '-0.01em' }}>Workflow Stages Protocol</h4>
+                  <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Diagnostic analysis of individual pipeline nodes.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                   <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sort Target:</div>
+                   <div style={{ display: 'flex', background: 'var(--bg-primary)', borderRadius: 10, padding: 4, border: '1px solid var(--nav-border)' }}>
+                      {[
+                        { id: 'duration', label: 'LATENCY' },
+                        { id: 'successPerformance', label: 'STABILITY' },
+                        { id: 'name', label: 'ALPHABETIC' }
+                      ].map(opt => (
+                        <button 
+                          key={opt.id}
+                          onClick={() => {
+                            if (cicdSortKey === opt.id) {
+                              setCicdSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            } else {
+                              setCicdSortKey(opt.id as any);
+                              setCicdSortOrder('desc');
+                            }
+                          }}
+                          style={{
+                            padding: '6px 14px', borderRadius: 8, fontSize: '0.65rem', fontWeight: 900, border: 'none', cursor: 'pointer',
+                            background: cicdSortKey === opt.id ? 'var(--scan-cyan)' : 'transparent',
+                            color: cicdSortKey === opt.id ? '#000' : 'var(--text-muted)',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          {opt.label} {cicdSortKey === opt.id ? (cicdSortOrder === 'desc' ? '▼' : '▲') : ''}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 8px' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left' }}>
+                      <th style={{ padding: '0 20px 12px', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>STAGE_IDENTIFIER</th>
+                      <th style={{ padding: '0 20px 12px', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>STABILITY_SCORE</th>
+                      <th style={{ padding: '0 20px 12px', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AVG_LATENCY</th>
+                      <th style={{ padding: '0 20px 12px', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>CLINICAL_STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cicd.stages.slice().sort((a, b) => {
+                      let valA: any, valB: any;
+                      if (cicdSortKey === 'name') { valA = a.name.toLowerCase(); valB = b.name.toLowerCase(); }
+                      else if (cicdSortKey === 'successPerformance') { valA = a.successRate; valB = b.successRate; }
+                      else { valA = a.avgDurationMinutes; valB = b.avgDurationMinutes; }
+                      
+                      if (valA < valB) return cicdSortOrder === 'asc' ? -1 : 1;
+                      if (valA > valB) return cicdSortOrder === 'asc' ? 1 : -1;
+                      return 0;
+                    }).map((stage, i: number) => (
+                      <tr key={i} className="protocol-row" style={{ background: 'var(--bg-surface)', transition: 'all 0.2s ease' }}>
+                        <td style={{ padding: '18px 20px', borderRadius: '12px 0 0 12px', fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>{stage.name}</td>
+                        <td style={{ padding: '18px 20px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ flex: 1, minWidth: 60, height: 6, background: 'var(--bg-primary)', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${stage.successRate}%`, height: '100%', background: stage.successRate > 90 ? 'var(--health-green)' : 'var(--warning-amber)' }} />
+                            </div>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 800 }}>{stage.successRate}%</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '18px 20px', fontFamily: 'var(--font-mono)', fontWeight: 900, color: stage.avgDurationMinutes > 10 ? 'var(--critical-red)' : 'var(--scan-cyan)', fontSize: '1.1rem' }}>{stage.avgDurationMinutes}m</td>
+                        <td style={{ padding: '18px 20px', borderRadius: '0 12px 12px 0' }}>
+                          <span style={{ 
+                            fontSize: '0.65rem', padding: '6px 12px', borderRadius: 8, fontWeight: 950, textTransform: 'uppercase',
+                            background: stage.status === 'healthy' ? 'rgba(0,230,118,0.1)' : stage.status === 'warning' ? 'rgba(255,171,0,0.1)' : 'rgba(255,23,68,0.1)',
+                            color: stage.status === 'healthy' ? 'var(--health-green)' : stage.status === 'warning' ? 'var(--warning-amber)' : 'var(--critical-red)',
+                            border: `1px solid ${stage.status === 'healthy' ? 'rgba(0,230,118,0.2)' : stage.status === 'warning' ? 'rgba(255,171,0,0.2)' : 'rgba(255,23,68,0.2)'}`
+                          }}>
+                            {stage.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: Reviews ———————————— */}
+        {activeTab === 'reviews' && !reviews && (
+          <EmptyClinicalState 
+            icon="👀"
+            badge="INTAKE_REQUIRED"
+            title="No PR Review Data Found"
+            description="No open pull requests or recent review activity detected. The engine requires PR interactions to analyze reviewer concentration, latency trends, and Gini coefficient distribution."
+            suggestedRepos={['microsoft/vscode', 'tailwindlabs/tailwindcss']}
+          />
+        )}
+        {activeTab === 'reviews' && reviews && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* PR Size vs Review Time Scatter */}
+            {reviews.prData && reviews.prData.length > 0 && (
+              <div className="card" style={{ height: 350 }}>
+                <h4 style={{ marginBottom: 16 }}>📊 PR Size vs Review Time</h4>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: 16 }}>
+                  Correlation between PR size and review time. Larger PRs typically take longer to review.
+                </p>
+                <ResponsiveContainer width="100%" height="75%">
+                  <ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--bg-surface)" />
+                    <XAxis type="number" dataKey="linesChanged" name="Lines Changed" tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} domain={[0, 'auto']} />
+                    <YAxis type="number" dataKey="reviewTimeHours" name="Review Time (h)" tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} domain={[0, 'auto']} />
+                    <Tooltip contentStyle={CustomTooltip} cursor={{ strokeDasharray: '3 3' }} />
+                    <Scatter name="PRs" data={reviews.prData} fill="var(--scan-cyan)">
+                      {reviews.prData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.size === 'XL' ? 'var(--critical-red)' : entry.size === 'L' ? 'var(--warning-orange)' : entry.size === 'M' ? 'var(--warning-amber)' : 'var(--health-green)'} />
+                      ))}
+                    </Scatter>
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            <div className="card">
+              <h4 style={{ marginBottom: 20 }}>PR Review Concentration (Gini Index: {reviews.giniCoefficient})</h4>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={reviews.reviewerLoad.slice(0, 8)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bg-surface)" />
+                  <XAxis dataKey="login" tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
+                  <Tooltip contentStyle={CustomTooltip} />
+                  <Bar dataKey="reviewCount" name="Reviews" fill="var(--scan-cyan)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="grid-2">
+              <div className="card">
+                <h4 style={{ marginBottom: 12, fontSize: '1rem' }}>PR Size Distribution</h4>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={[
+                      { name: 'S (<100)', value: reviews.prSizeDistribution.S },
+                      { name: 'M (100-500)', value: reviews.prSizeDistribution.M },
+                      { name: 'L (500-1K)', value: reviews.prSizeDistribution.L },
+                      { name: 'XL (>1K)', value: reviews.prSizeDistribution.XL },
+                    ].filter(d => d.value > 0)} cx="50%" cy="50%" outerRadius={70} dataKey="value"
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
+                      {CHART_COLORS.map((c, i) => <Cell key={i} fill={c} />)}
+                    </Pie>
+                    <Tooltip contentStyle={CustomTooltip} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="card">
+                <h4 style={{ marginBottom: 12, fontSize: '1rem' }}>Key Metrics</h4>
+                {[
+                  { label: 'Median Review Time', value: `${reviews.medianReviewTimeHours}h`, color: reviews.medianReviewTimeHours > 24 ? 'var(--critical-red)' : 'var(--text-primary)' },
+                  { label: 'XL PR Rate', value: `${reviews.xlPrPercentage}%`, color: reviews.xlPrPercentage > 15 ? 'var(--warning-amber)' : 'var(--text-primary)' },
+                  { label: 'Stale PRs', value: reviews.stalePRs.length.toString(), color: reviews.stalePRs.length > 5 ? 'var(--critical-red)' : 'var(--text-primary)' },
+                  { label: 'Self-Merge Rate', value: `${reviews.selfMergeRate}%`, color: reviews.selfMergeRate > 20 ? 'var(--warning-amber)' : 'var(--text-primary)' },
+                  { label: 'Load Balance', value: reviews.loadBalance, color: (reviews.loadBalance === 'critical' || reviews.loadBalance === 'uneven') ? 'var(--critical-red)' : 'var(--health-green)' },
+                ].map((m, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(0,229,255,0.04)' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{m.label}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: m.color, fontSize: '0.85rem', fontWeight: 600 }}>{m.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Stale PR Table */}
+            {reviews.stalePRs.length > 0 && (
+              <div className="card">
+                <h4 style={{ marginBottom: 16 }}>⏱️ Stale PRs</h4>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--bg-surface)' }}>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>#</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Title</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Author</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Days Open</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Lines</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reviews.stalePRs.slice(0, 10).map((pr, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid rgba(0,229,255,0.03)' }}>
+                          <td style={{ padding: '12px 8px', fontFamily: 'var(--font-mono)', color: 'var(--scan-cyan)' }}>#{pr.number}</td>
+                          <td style={{ padding: '12px 8px', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.title}</td>
+                          <td style={{ padding: '12px 8px' }}>@{pr.author}</td>
+                          <td style={{ padding: '12px 8px', fontFamily: 'var(--font-mono)', color: pr.daysOpen > 30 ? 'var(--critical-red)' : pr.daysOpen > 14 ? 'var(--warning-orange)' : 'var(--warning-amber)' }}>{pr.daysOpen}d</td>
+                          <td style={{ padding: '12px 8px', fontFamily: 'var(--font-mono)' }}>{pr.linesChanged}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ———————————— TAB: Dependencies ———————————— */}
+        {activeTab === 'deps' && !deps && (
+          <EmptyClinicalState 
+            icon="📦"
+            badge="MISSING_MANIFEST"
+            title="Dependency Manifest Not Found"
+            description="The diagnostic scanner could not identify a supported package manager (npm, yarn, pnpm, pip). Sensor cannot perform vulnerability tracking or license risk assessment."
+          />
+        )}
+        {activeTab === 'deps' && deps && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div className="grid-4">
+              {[
+                { label: 'Critical', count: deps.vulnerabilities.critical, cls: 'badge-critical' },
+                { label: 'High', count: deps.vulnerabilities.high, cls: 'badge-high' },
+                { label: 'Medium', count: deps.vulnerabilities.medium, cls: 'badge-medium' },
+                { label: 'Low', count: deps.vulnerabilities.low, cls: 'badge-low' },
+              ].map((v, i: number) => (
+                <div key={i} className="card" style={{ textAlign: 'center' }}>
+                  <span className={`badge ${v.cls}`}>{v.label}</span>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: 8 }}>{v.count}</p>
+                </div>
+              ))}
+            </div>
+
+            {deps.vulnDetails.length > 0 && (
+              <div className="card">
+                <h4 style={{ marginBottom: 12, fontSize: '1rem' }}>Vulnerability Details</h4>
+                {deps.vulnDetails.slice(0, 12).map((v, i: number) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(0,229,255,0.04)' }}>
+                    <div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', marginRight: 8 }}>{v.package}@{v.version}</span>
+                      <span className={`badge ${sev(v.severity)}`}>{v.severity}</span>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{v.vulnId}</span>
+                      {v.fixedIn && <p style={{ fontSize: '0.7rem', color: 'var(--health-green)' }}>Fix: → {v.fixedIn}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid-3">
+              {[
+                { label: 'Total Dependencies', value: (deps.totalDeps + deps.totalDevDeps).toString(), color: 'var(--text-primary)' },
+                { label: 'Outdated', value: `${deps.outdatedPercentage}%`, color: deps.outdatedPercentage > 30 ? 'var(--warning-amber)' : 'var(--text-primary)' },
+                { label: 'License Risks', value: deps.riskyLicenseCount.toString(), color: deps.riskyLicenseCount > 0 ? 'var(--critical-red)' : 'var(--health-green)' },
+              ].map((m, i: number) => (
+                <div key={i} className="card" style={{ textAlign: 'center' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{m.label}</p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '2rem', fontWeight: 700, color: m.color }}>{m.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+
+
+                <div className="grid-2">
+                  <div className="card">
+                     <h4 style={{ marginBottom: 20 }}>Health Distribution</h4>
+                     <ResponsiveContainer width="100%" height={250}>
+                        <PieChart>
+                          <Pie 
+                            data={[
+                              { name: 'Grade A', value: scanHistory.filter(h => h.score >= 80).length },
+                              { name: 'Grade B', value: scanHistory.filter(h => h.score >= 60 && h.score < 80).length },
+                              { name: 'Grade C', value: scanHistory.filter(h => h.score >= 40 && h.score < 60).length },
+                              { name: 'Grade D/F', value: scanHistory.filter(h => h.score < 40).length },
+                            ].filter(d => d.value > 0)}
+                            cx="50%" cy="50%" outerRadius={80} dataKey="value" stroke="none"
+                            label={({ name }) => name}
+                          >
+                            {CHART_COLORS.map((c, i) => <Cell key={i} fill={c} />)}
+                          </Pie>
+                          <Tooltip contentStyle={CustomTooltip} />
+                        </PieChart>
+                     </ResponsiveContainer>
+                  </div>
+                  <div className="card">
+                    <h4 style={{ marginBottom: 20 }}>Organizational Benchmarks</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                       {scanHistory.sort((a,b) => b.score - a.score).map((h, i) => (
+                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ 
+                              width: 32, height: 32, borderRadius: 8, background: 'var(--bg-surface)', 
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                              fontWeight: 900, color: h.score >= 80 ? 'var(--health-green)' : 'var(--scan-cyan)',
+                              fontSize: '0.8rem', border: `1px solid ${h.score >= 80 ? 'var(--health-green)' : 'var(--scan-cyan)'}33`
+                            }}>
+                              {h.grade}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                               <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{h.repo.split('/')[1]}</div>
+                               <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{h.repo.split('/')[0]}</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                               <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)' }}>{h.score}</div>
+                               <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>DX_SCORE</div>
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* INTEGRATED: FLEET OVERVIEW */}
+                <div style={{ marginTop: 40, borderTop: '1px solid var(--nav-border)', paddingTop: 40 }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                     <span style={{ fontSize: '1.5rem' }}>🏢</span>
+                     <div>
+                       <h3 style={{ margin: 0 }}>Organization Fleet Registry</h3>
+                       <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>MULTI_REPOSITORY_BENCHMARKING</div>
+                     </div>
+                   </div>
+
+                   {scanHistory.length < 2 ? (
+                     <div className="module-card" style={{ padding: 40, textAlign: 'center', border: '1px dashed var(--nav-border)' }}>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Additional tissue samples (repositories) required for fleet analysis. Scan more repositories to populate org-level telemetry.</p>
+                     </div>
+                   ) : (
+                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+                        <div className="card" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Fleet Avg Score</div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 950, color: 'var(--scan-cyan)' }}>{Math.round(scanHistory.reduce((a, b) => a + b.score, 0) / scanHistory.length)}</div>
+                        </div>
+                        <div className="card" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Registry Count</div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 950 }}>{scanHistory.length}</div>
+                        </div>
+                        <div className="card" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Health Variance</div>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 950, color: 'var(--warning-amber)' }}>{Math.max(...scanHistory.map(s => s.score)) - Math.min(...scanHistory.map(s => s.score))} pts</div>
+                        </div>
+                     </div>
+                   )}
+                </div>
+
+                {/* INTEGRATED: SECURITY CHECKLIST */}
+                {security && (
+                  <div className="animate-fade-in" style={{ marginTop: 40, borderTop: '1px solid var(--nav-border)', paddingTop: 40 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                      <span style={{ fontSize: '1.5rem' }}>🔒</span>
+                      <div>
+                        <h3 style={{ margin: 0 }}>Clinical Security Posture</h3>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>REPOSITORY_HARDENING_PROTOCOL</div>
+                      </div>
+                    </div>
+
+                    <div className="grid-4" style={{ marginBottom: 24 }}>
+                       {[
+                         { label: 'Protection', val: security.branchProtection ? '✅' : '❌' },
+                         { label: 'Reviews', val: security.requireReviews ? '✅' : '❌' },
+                         { label: 'Status Checks', val: security.requireStatusChecks ? '✅' : '❌' },
+                         { label: 'Security Policy', val: security.hasSecurityPolicy ? '✅' : '❌' },
+                       ].map((s, i) => (
+                         <div key={i} className="card" style={{ textAlign: 'center' }}>
+                           <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{s.label}</p>
+                           <p style={{ fontSize: '1.5rem', marginTop: 4 }}>{s.val}</p>
+                         </div>
+                       ))}
+                    </div>
+
+                    <div className="card">
+                       <h4 style={{ marginBottom: 16 }}>Commit Hygiene Distribution</h4>
+                       {commitHygiene && (
+                          <div className="grid-2">
+                            <ChartWrapper height={200}>
+                              <PieChart>
+                                <Pie data={Object.entries(commitHygiene.prefixDistribution).map(([name, value]) => ({ name, value }))} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" stroke="none">
+                                   {Object.entries(commitHygiene.prefixDistribution).map((_, idx) => <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />)}
+                                </Pie>
+                                <Tooltip contentStyle={CustomTooltip} />
+                              </PieChart>
+                            </ChartWrapper>
+                            <div style={{ paddingLeft: 20 }}>
+                               <div style={{ fontSize: '0.8rem', marginBottom: 12 }}>Conventional Commits: <span style={{ fontWeight: 800, color: 'var(--health-green)' }}>{commitHygiene.conventionalPct}%</span></div>
+                               <div style={{ fontSize: '0.8rem', marginBottom: 12 }}>Short Messages: <span style={{ fontWeight: 800, color: 'var(--critical-red)' }}>{commitHygiene.shortMessagePct}%</span></div>
+                               <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Analyzed over 100 recent genetic mutations (commits). High short message counts indicate poor clinical documentation.</div>
+                            </div>
+                          </div>
+                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* INTEGRATED: DEAD TISSUE ANALYSIS (Necrosis) */}
+                {necrosis && (
+                  <div className="animate-fade-in" style={{ marginTop: 40, borderTop: '1px solid var(--nav-border)', paddingTop: 40 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                      <span style={{ fontSize: '1.5rem' }}>💀</span>
+                      <div>
+                        <h3 style={{ margin: 0 }}>Dead Tissue & Necrotic Logic</h3>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>ORPHANED_FILES_DETECTION</div>
+                      </div>
+                    </div>
+
+                    <div className="grid-3" style={{ marginBottom: 24 }}>
+                      <div className="card" style={{ textAlign: 'center', borderColor: necrosis.riskScore > 50 ? 'var(--critical-red)' : necrosis.riskScore > 25 ? 'var(--warning-orange)' : 'var(--health-green)' }}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Risk Score</p>
+                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 800, color: necrosis.riskScore > 50 ? 'var(--critical-red)' : necrosis.riskScore > 25 ? 'var(--warning-orange)' : 'var(--health-green)' }}>{necrosis.riskScore}</p>
+                      </div>
+                      <div className="card" style={{ textAlign: 'center' }}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Orphaned Files</p>
+                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 800 }}>{necrosis.orphanedFiles.length}</p>
+                      </div>
+                      <div className="card" style={{ textAlign: 'center' }}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Wasted Size</p>
+                        <p style={{ fontFamily: 'var(--font-mono)', fontSize: '2.5rem', fontWeight: 800, color: 'var(--warning-orange)' }}>{(necrosis.totalWastedSize / 1024).toFixed(1)}KB</p>
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <h4 style={{ marginBottom: 16 }}>Necrosis Diagnostic Report</h4>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 24 }}>{necrosis.impactDescription}</p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                        {necrosis.orphanedFiles.map((file, i) => (
+                          <div key={i} className="module-card" style={{ 
+                            border: `1px solid ${file.severity === 'critical' ? 'var(--critical-red)' : 'rgba(var(--scan-cyan-rgb),0.1)'}`,
+                            padding: '16px', background: 'rgba(var(--bg-surface-rgb), 0.3)' 
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                              <span className={`badge ${file.severity === 'critical' ? 'badge-critical' : 'badge-medium'}`}>{file.severity}</span>
+                              <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{file.lastModified}</span>
+                            </div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: 800, marginBottom: 8, wordBreak: 'break-all' }}>{file.path}</div>
+                            <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: 12 }}>{file.recommendation}</p>
+                            <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.65rem' }}>PURGE ASSETS</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ———————————— TAB: Team X-Ray ———————————— */}
+        {activeTab === 'teamxray' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div className="card">
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={{ margin: 0 }}>👥 Team DETAILS — Who Works on What?</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: 4 }}>
+                  Maps contributors to codebase domains using git commit history
+                </p>
+              </div>
+
+              {teamLoading && (
+                <div style={{ textAlign: 'center', padding: 60 }}>
+                  <div className="heartbeat" style={{ margin: '0 auto 16px' }} />
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Scanning team topology...</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: 8 }}>Analyzing commit history across domains</p>
+                </div>
+              )}
+
+              {teamError && (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--critical-red)' }}>
+                  <p>⚠️ {teamError}</p>
+                </div>
+              )}
+
+              {teamData && (
+                <>
+                  {/* Domain Summary Cards — Premium Animated */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 28 }}>
+                    {teamData.domainSummary.map((d: any, dIdx: number) => (
+                      <div key={d.name} className="team-domain-card" style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: `1.5px solid ${d.color}30`,
+                        borderRadius: 16, padding: 20,
+                        borderLeft: `4px solid ${d.color}`,
+                        animationDelay: `${dIdx * 0.08}s`,
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <span style={{ fontSize: '1.4rem', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>{d.icon}</span>
+                          <span style={{ background: `${d.color}18`, color: d.color, border: `1px solid ${d.color}33`, fontSize: '0.6rem', fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' }}>
+                            {d.memberCount} {d.memberCount === 1 ? 'dev' : 'devs'}
+                          </span>
+                        </div>
+                        <div style={{ fontWeight: 900, fontSize: '0.95rem', marginBottom: 4, color: 'var(--text-primary)' }}>{d.name}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#8e8ea0' }}>
+                          {d.totalFileTouches} file touches
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#6b6b80', marginTop: 8 }}>
+                          {d.members.slice(0, 3).join(', ')}{d.members.length > 3 ? ` +${d.members.length - 3}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Risk Alerts — White Theme Compatible */}
+                  {teamData.risks.length > 0 && (
+                    <div className="team-risks-section" style={{ marginBottom: 28 }}>
+                      <h4 style={{ fontSize: '0.8rem', color: '#e53935', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 900 }}>⚠️ Team Risks</h4>
+                      {teamData.risks.map((r: any, i: number) => (
+                        <div key={i} className="team-risk-card" style={{
+                          display: 'flex', gap: 12, alignItems: 'center', padding: '14px 18px',
+                          background: r.severity === 'CRITICAL' ? 'rgba(229,57,53,0.1)' : 'rgba(255,152,0,0.08)',
+                          border: `1.5px solid ${r.severity === 'CRITICAL' ? '#ffcdd2' : '#ffe0b2'}`,
+                          borderRadius: 14, marginBottom: 10, fontSize: '0.85rem',
+                          borderLeft: `4px solid ${r.severity === 'CRITICAL' ? '#e53935' : '#ff9800'}`,
+                          animationDelay: `${i * 0.1}s`,
+                        }}>
+                          <span style={{
+                            background: r.severity === 'CRITICAL' ? '#e53935' : '#ff9800',
+                            color: '#fff',
+                            fontSize: '0.6rem', fontWeight: 900,
+                            padding: '4px 10px', borderRadius: 6,
+                            textTransform: 'uppercase', letterSpacing: '0.05em',
+                            boxShadow: r.severity === 'CRITICAL' ? '0 2px 8px rgba(229,57,53,0.3)' : '0 2px 8px rgba(255,152,0,0.2)'
+                          }}>{r.severity}</span>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: r.severity === 'CRITICAL' ? 600 : 400 }}>{r.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ═══ Contributor Grid — "Meet Our Team" Style ═══ */}
+                  <div className="team-grid-container">
+                    <h3 className="team-grid-title">👥 {result?.repo?.fullName?.split('/').pop() || 'Repository'} — Contributors</h3>
+                    <p className="team-grid-subtitle">Contributor profiles mapped to codebase domains via git commit history</p>
+
+                    {/* Domain Filter Pills */}
+                    <div className="team-filter-pills">
+                      {(['All', ...Array.from(new Set(teamData.contributors.flatMap((c: any) => c.domainBreakdown?.map((d: any) => d.name) || [])))] as string[]).slice(0, 6).map((domain: string, di: number) => (
+                        <button key={di} className={`team-filter-pill ${di === 0 ? 'active' : ''}`}>{domain}</button>
+                      ))}
+                    </div>
+
+                    {/* Contributor Grid */}
+                    <div className="team-contributors-grid">
+                      {teamData.contributors.slice(0, 12).map((c: any, cIdx: number) => {
+                        const pastelColors = ['#FFD6E0', '#D4F0FF', '#E8D4FF', '#D4FFE4', '#FFF3D4', '#FFE0D4', '#D4EAFF', '#F0D4FF', '#D4FFF0', '#FFDDD4', '#E0FFD4', '#D4DFFF'];
+                        const bgColor = pastelColors[cIdx % pastelColors.length];
+                        return (
+                          <div key={c.login} className="team-member-card">
+                            {cIdx === 0 && <div className="principal-badge">Principal</div>}
+                            <div className="team-avatar-wrapper" style={{ background: bgColor }}>
+                              {c.avatar ? (
+                                <img src={c.avatar} alt={c.login} />
+                              ) : (
+                                <div className="fallback-avatar" style={{ background: bgColor }}>👤</div>
+                              )}
+                            </div>
+                            <div className="team-member-name">{c.login}</div>
+                            <div className="team-member-role">{c.primaryIcon} {c.primaryDomain} · {c.role}</div>
+                            <div className="team-member-stats">
+                              <div className="stat-item">
+                                <div className="stat-value">{c.totalCommits}</div>
+                                <div className="stat-label">Commits</div>
+                              </div>
+                              <div className="stat-item">
+                                <div className="stat-value">{c.knowledgeCoverage}%</div>
+                                <div className="stat-label">Coverage</div>
+                              </div>
+                              <div className="stat-item">
+                                <div className="stat-value">${c.economicImpact?.toLocaleString()}</div>
+                                <div className="stat-label">Value</div>
+                              </div>
+                            </div>
+                            <div className="team-domain-bar">
+                              {c.domainBreakdown?.map((d: any, i: number) => (
+                                <div key={i} style={{ width: `${d.percentage}%`, background: d.color, minWidth: d.percentage > 5 ? 4 : 0 }} title={`${d.name}: ${d.percentage}%`} />
+                              ))}
+                            </div>
+                            <div className="team-social-icons" style={{ marginTop: 14 }}>
+                              <a href={`https://github.com/${c.login}`} target="_blank" rel="noopener noreferrer" className="team-social-icon" title="GitHub Profile">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                              </a>
+                              <span className="team-social-icon" title={`Activity: ${c.activityStatus}`}>
+                                <span style={{ background: c.activityStatus === 'Active' ? '#00e676' : c.activityStatus === 'Recent' ? '#ffab00' : '#888', width: 8, height: 8, borderRadius: '50%', display: 'inline-block' }} />
+                              </span>
+                              {c.burnoutRisk === 'high' && (
+                                <span className="team-social-icon" style={{ background: '#fff0f0', borderColor: '#ffcdd2', color: '#ff3d60' }} title="Burnout Risk">⚡</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="team-footer-stats">
+                      Analyzed {teamData.analyzedCommits} commits · {teamData.totalContributors} contributors detected
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ———————————— TAB: Code Autopsy Studio ———————————— */}
+        {activeTab === 'autopsy' && (
+          <div className="animate-fade-in">
+            <CodeAutopsy
+              dxScore={dxScore}
+              grade={grade}
+              frictionCost={frictionCost}
+              cicd={result.cicd}
+              reviews={result.reviews}
+              deps={result.deps}
+              necrosis={result.necrosis}
+              busFactor={result.busFactor}
+              heatmap={heatmap}
+              repoName={result.repo.fullName}
+            />
+            <FailureReplay
+              dxScore={dxScore}
+              grade={grade}
+              frictionCost={frictionCost}
+              cicd={result.cicd}
+              reviews={result.reviews}
+              necrosis={result.necrosis}
+              heatmap={heatmap}
+              repoName={result.repo.fullName}
+            />
+            <EngineeringDNA
+              repoName={result.repo.fullName}
+              commits={(result.repo as any).commitCount || 500}
+              contributors={result.busFactor?.topContributors?.length || (result.repo as any).contributorCount || 10}
+              files={(result.repo as any).fileCount || 200}
+              dxScore={dxScore}
+              grade={grade}
+              cicd={result.cicd}
+              reviews={result.reviews}
+              necrosis={result.necrosis}
+              heatmap={heatmap}
+            />
+          </div>
+        )}
+                </div>
+                <div style={{ color: '#c9d1d9', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                  <p style={{ marginBottom: 8 }}>### 🩺 DevMRI Diagnostic Summary</p>
+                  <p style={{ marginBottom: 4 }}>| Metric | Value | Status |</p>
+                  <p style={{ marginBottom: 4 }}>|--------|-------|--------|</p>
+                  <p style={{ marginBottom: 4 }}>| DX Score | <strong style={{ color: getScoreColor(dxScore) }}>{dxScore}</strong> | Grade <strong>{grade}</strong> |</p>
+                  <p style={{ marginBottom: 4 }}>| CI Health | {scores.cicd}% | {scores.cicd > 70 ? '✅' : '⚠️'} |</p>
+                  <p style={{ marginBottom: 4 }}>| Review Load | {scores.reviews}% | {scores.reviews > 70 ? '✅' : '⚠️'} |</p>
+                  <p style={{ marginBottom: 4 }}>| Friction Cost | ${frictionCost.total.toLocaleString()}/mo | 💰 |</p>
+                  <p style={{ marginTop: 12, color: '#8b949e', fontSize: '0.8rem' }}>_Powered by DevMRI · [Full Report →]({typeof window !== 'undefined' ? window.location.origin : ''}/scanning?repo={result.repo.fullName})_</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* â”€â”€â”€ PREMIUM CHAT UX (Floating Component) â”€â”€â”€ */}
+      <div className="chat-bubble-container">
+        {isChatOpen && (
+          <div className={`chat-window-premium ${isChatMaximized ? 'maximized' : ''}`}>
+            <div 
+              className="chat-header-premium"
+              onClick={() => setIsChatMaximized(!isChatMaximized)}
+              style={{ cursor: 'pointer' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: chatMode === 'codebase' ? 'var(--purple)' : 'var(--scan-cyan)', boxShadow: `0 0 10px ${chatMode === 'codebase' ? 'var(--purple)' : 'var(--scan-cyan)'}`, animation: 'pulse 2s infinite' }} />
+                <span style={{ fontSize: '0.75rem', fontWeight: 950, letterSpacing: '0.1em', color: chatMode === 'codebase' ? 'var(--purple)' : 'var(--scan-cyan)' }}>
+                  {chatMode === 'codebase' ? 'DNA_CODEBASE_LENS' : 'AI_CLINICAL_ADVISOR'}
+                </span>
+                {isChatMaximized && <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: 4 }}>IMMERSIVE MODE</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
+                {/* Mode Toggle */}
+                <div style={{ display: 'flex', background: 'rgba(0,0,0,0.4)', borderRadius: 20, border: '1px solid rgba(0,229,255,0.15)', padding: 2, marginRight: 4 }}>
+                  <button
+                    onClick={() => setChatMode('diagnostics')}
+                    style={{
+                      background: chatMode === 'diagnostics' ? 'rgba(0,229,255,0.15)' : 'transparent',
+                      border: 'none', color: chatMode === 'diagnostics' ? 'var(--scan-cyan)' : 'var(--text-muted)',
+                      padding: '3px 8px', borderRadius: 16, cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
+                    }}
+                  >DX</button>
+                  <button
+                    onClick={() => setChatMode('codebase')}
+                    style={{
+                      background: chatMode === 'codebase' ? 'rgba(179,136,255,0.15)' : 'transparent',
+                      border: 'none', color: chatMode === 'codebase' ? 'var(--purple)' : 'var(--text-muted)',
+                      padding: '3px 8px', borderRadius: 16, cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
+                    }}
+                  >RAG</button>
+                </div>
+                
+                <button 
+                  onClick={() => setIsChatMaximized(!isChatMaximized)}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', padding: '4px' }}
+                  title={isChatMaximized ? 'Minimize' : 'Maximize'}
+                >
+                  {isChatMaximized ? '❐' : '⬜'}
+                </button>
+                
+                <button 
+                  onClick={() => { setIsChatOpen(false); setIsChatMaximized(false); }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem', padding: '1px 4px' }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Optimized Header-Integrated Status Bar */}
+            {chatMode === 'codebase' && (
+              <div style={{ 
+                padding: '4px 20px', 
+                background: ragIndexed ? 'rgba(0,230,118,0.02)' : 'rgba(179,136,255,0.05)',
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.62rem',
+                fontWeight: 600,
+                color: ragIndexed ? 'var(--health-green)' : 'var(--purple)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>{ragIndexed ? 'READY' : (ragIndexing ? 'SCANNING...' : 'STANDBY')}</span>
+                  {ragProgress && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— {ragProgress}</span>}
+                </div>
+                {!ragIndexed && !ragIndexing && (
+                  <button 
+                    onClick={indexCodebase}
+                    style={{ background: 'var(--purple)', border: 'none', color: '#fff', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: '0.55rem', fontWeight: 800 }}
+                  >INITIALIZE</button>
+                )}
+              </div>
+            )}
+
+            {/* Combined Source Ref & Mode Banner */}
+            {ragSources.length > 0 && chatMode === 'codebase' && (
+              <div style={{ padding: '6px 20px', background: 'rgba(0,0,0,0.2)', borderBottom: '1px solid rgba(255,255,255,0.03)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '0.6rem', color: 'var(--purple)', fontWeight: 800, whiteSpace: 'nowrap' }}>REF_MOUNTED</span>
+                <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }} className="no-scrollbar">
+                  {ragSources.slice(0, 5).map((src, i) => (
+                    <span key={i} style={{ padding: '2px 6px', background: 'rgba(179,136,255,0.08)', borderRadius: 4, fontSize: '0.58rem', color: 'rgba(179,136,255,0.9)', border: '1px solid rgba(179,136,255,0.1)' }}>
+                      {src.filePath.split('/').pop()}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="chat-messages-premium" ref={chatRef}>
+              {chatMessages.length === 0 && (
+                <div style={{ textAlign: 'center', marginTop: 40 }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <img src="/surgeons_orb.png" alt="Clinical AI" style={{ width: 64, height: 64, animation: 'heartbeat 4s infinite ease-in-out', margin: '0 auto' }} />
+                  </div>
+                  <p style={{ color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: 600, marginBottom: 8 }}>
+                    {chatMode === 'codebase' ? 'Codebase Intelligence Online' : 'Diagnostic Consultant Online'}
+                  </p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', maxWidth: '80%', margin: '0 auto' }}>
+                    {chatMode === 'codebase'
+                      ? 'Ask questions about your actual source code. "Where is the auth logic?" or "Explain the API routes."'
+                      : 'Ask me anything about your repo health, bottleneck fixes, or security posture.'}
+                  </p>
+                </div>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} className={m.role === 'ai' ? 'chat-msg-ai-premium animate-fade-in' : 'chat-msg-user-premium animate-fade-in'} style={{ animationDelay: `${Math.min(i * 0.1, 0.5)}s` }}>
+                  {m.role === 'ai' ? (
+                   <ReactMarkdown 
+                     remarkPlugins={[remarkGfm]}
+                     components={{
+                       h1: ({node, ...props}) => <h1 style={{color: 'var(--scan-cyan)', margin: '16px 0 10px', borderLeft: '4px solid var(--scan-cyan)', paddingLeft: 12, fontSize: '1.3rem', fontWeight: 950}}>🧬 {props.children}</h1>,
+                       h2: ({node, ...props}) => <h2 style={{color: 'var(--scan-cyan)', borderBottom: '1px solid rgba(0,229,255,0.1)', paddingBottom: 6, margin: '14px 0 8px', fontSize: '1.1rem', fontWeight: 800}}>📊 {props.children}</h2>,
+                       h3: ({node, ...props}) => <h3 style={{color: 'var(--text-primary)', margin: '12px 0 6px', fontSize: '1rem', fontWeight: 800}}>🩺 {props.children}</h3>,
+                       table: ({node, ...props}) => (
+                         <div style={{overflowX: 'auto', margin: '16px 0', border: '1px solid rgba(0,229,255,0.1)', borderRadius: 12, background: 'rgba(0,0,0,0.3)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.4)'}}>
+                           <table style={{borderCollapse: 'collapse', width: '100%', fontSize: '0.85rem'}} {...props} />
+                         </div>
+                       ),
+                       tr: ({node, ...props}) => <tr style={{transition: 'background 0.2s', borderBottom: '1px solid rgba(255,255,255,0.03)'}} onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,229,255,0.05)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'} {...props} />,
+                       th: ({node, ...props}) => <th style={{background: 'rgba(0,229,255,0.12)', padding: '12px 14px', textAlign: 'left', fontWeight: 950, fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--scan-cyan)', letterSpacing: '0.08em'}} {...props} />,
+                       td: ({node, ...props}) => <td style={{padding: '12px 14px', color: 'var(--text-secondary)', lineHeight: 1.5}} {...props} />,
+                       code: ({node, inline, ...props}: any) => inline 
+                         ? <code style={{background: 'rgba(0,229,255,0.12)', color: 'var(--scan-cyan)', padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: '0.85em', fontWeight: 700}} {...props} />
+                         : <code style={{display: 'block', background: 'rgba(0,0,0,0.6)', padding: 18, borderRadius: 10, border: '1px solid rgba(0,229,255,0.1)', color: 'var(--health-green)', margin: '14px 0', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', lineHeight: 1.6, overflowX: 'auto', position: 'relative'}} {...props} />,
+                       li: ({node, ...props}) => <li style={{marginBottom: 8, paddingLeft: 6, listStyleType: "'→ '", color: 'var(--text-secondary)'}} {...props} />
+                     }}
+                   >
+                     {m.content}
+                   </ReactMarkdown>
+                  ) : (
+                    <div className="text-content">{m.content}</div>
+                  )}
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="chat-msg-ai-premium">
+                   <div style={{ display: 'flex', gap: 4 }}>
+                      <span className="surgery-cursor" style={{ margin: 0 }}></span>
+                      <span className="surgery-cursor" style={{ margin: 0, animationDelay: '0.2s' }}></span>
+                      <span className="surgery-cursor" style={{ margin: 0, animationDelay: '0.4s' }}></span>
+                   </div>
+                </div>
+              )}
+            </div>
+
+            {chatMessages.length < 3 && !chatLoading && (
+              <div className="suggestion-chips custom-scrollbar" style={{ 
+                background: 'transparent', 
+                padding: '0 20px 16px', 
+                border: 'none', 
+                display: 'flex', 
+                gap: 10, 
+                overflowX: 'auto', 
+                whiteSpace: 'nowrap',
+                scrollSnapType: 'x mandatory'
+              }}>
+                {chatMode === 'codebase' ? (
+                  <>
+                    <button className="suggestion-chip" style={{ scrollSnapAlign: 'start' }} onClick={() => sendChat('Where is the authentication logic?')}>🔍 Find Auth Logic</button>
+                    <button className="suggestion-chip" style={{ scrollSnapAlign: 'start' }} onClick={() => sendChat('How are the API routes organized?')}>🧪 Explore API Structure</button>
+                    <button className="suggestion-chip" style={{ scrollSnapAlign: 'start' }} onClick={() => sendChat('Explain the project structure')}>📂 Repo Overview</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="suggestion-chip" style={{ scrollSnapAlign: 'start' }} onClick={() => sendChat('What is my #1 priority fix?')}>🚀 Top Priority Fix</button>
+                    <button className="suggestion-chip" style={{ scrollSnapAlign: 'start' }} onClick={() => sendChat('Explain my score')}>📊 Why is my score {dxScore}?</button>
+                    <button className="suggestion-chip" style={{ scrollSnapAlign: 'start' }} onClick={() => sendChat('Suggest a team allocation')}>👥 Personnel Insight</button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Clinical Quick Actions */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 20px 12px', marginTop: -8 }}>
+              {[
+                { label: 'Propose Surgical Fix', icon: '⚡', color: 'var(--scan-cyan)' },
+                { label: 'Rehab Plan', icon: '🩹', color: 'var(--health-green)' },
+                { label: 'Sanitize Dead Tissue', icon: '🗑️', color: 'var(--critical-red)' },
+                { label: 'DNA Lens Scan', icon: '🧬', color: 'var(--purple)' }
+              ].map((action, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendChat(action.label)}
+                  style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${action.color}30`,
+                    color: action.color,
+                    padding: '4px 10px',
+                    borderRadius: 12,
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    alignItems: 'center',
+                    gap: 4,
+                    transition: 'all 0.2s',
+                    backdropFilter: 'blur(4px)'
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = `${action.color}15`)}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                >
+                  <span>{action.icon}</span> {action.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="chat-input-area-premium">
+              <div className="chat-input-container-premium">
+                <input 
+                  placeholder="Type a query..." 
+                  value={chatInput} 
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && sendChat()}
+                />
+                <button 
+                  onClick={() => sendChat()}
+                  style={{ background: 'var(--scan-cyan)', color: '#000', border: 'none', padding: '0 16px', cursor: 'pointer', fontWeight: 700 }}
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3D MASCOT CHAT TOGGLE */}
+        <div 
+          className={`floating-chat-btn ${isChatOpen ? 'active' : ''}`}
+          onClick={() => setIsChatOpen(!isChatOpen)}
+          style={{
+            background: isChatOpen 
+              ? 'rgba(10,14,20,0.95)' 
+              : 'radial-gradient(circle at 30% 30%, rgba(0,229,255,0.15), rgba(10,14,20,0.92) 70%)',
+            boxShadow: isChatOpen 
+              ? '0 0 30px rgba(0,0,0,0.4), inset 0 0 20px rgba(0,229,255,0.05)' 
+              : '0 8px 40px rgba(0,229,255,0.35), 0 0 0 2px rgba(0,229,255,0.15), inset 0 1px 0 rgba(255,255,255,0.1)',
+            color: isChatOpen ? 'var(--scan-cyan)' : '#000',
+            width: 72,
+            height: 72,
+            borderRadius: '50%',
+            border: isChatOpen ? '1.5px solid rgba(0,229,255,0.3)' : '1.5px solid rgba(0,229,255,0.2)',
+            overflow: 'hidden',
+            position: 'relative',
+          }}
+        >
+          {/* Pulsing glow ring */}
+          {!isChatOpen && (
+            <div style={{
+              position: 'absolute', inset: -4,
+              borderRadius: '50%',
+              border: '2px solid rgba(0,229,255,0.25)',
+              animation: 'pulseRing 2.5s ease-in-out infinite',
+              pointerEvents: 'none',
+            }} />
+          )}
+          {isChatOpen ? (
+            <span style={{ fontSize: '1.8rem', fontWeight: 300 }}>×</span>
+          ) : (
+            <img 
+              src="/dxray_mascot.png" 
+              alt="DX-Ray AI Surgeon" 
+              style={{ 
+                width: 58, height: 58, 
+                objectFit: 'cover',
+                borderRadius: '50%',
+                animation: 'mascotFloat 4s ease-in-out infinite',
+                filter: 'drop-shadow(0 0 8px rgba(0,229,255,0.3))',
+                transition: 'transform 0.3s',
+              }} 
+            />
+          )}
+        </div>
+      </div>
+      {showCostBreakdown && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div 
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }} 
+            onClick={() => setShowCostBreakdown(false)} 
+          />
+          <div className="card-glow animate-scale-up clinical-modal-shadow" style={{ 
+            width: '100%', maxWidth: 720, maxHeight: '92vh',
+            background: 'var(--bg-primary)', 
+            color: 'var(--text-primary)',
+            border: '1px solid var(--scan-cyan-dim)', borderRadius: 28, padding: 0, 
+            position: 'relative', zIndex: 1, boxShadow: '0 40px 120px rgba(0,0,0,0.4)',
+            overflow: 'hidden', display: 'flex', flexDirection: 'column'
+          }}>
+            {/* Clinical Header Bar */}
+            <div style={{ 
+              padding: '16px 24px', borderBottom: '1px solid var(--bg-surface)', 
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              background: 'var(--bg-secondary)', flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ padding: '4px 10px', background: 'rgba(255,23,68,0.1)', border: '1px solid rgba(255,23,68,0.2)', borderRadius: 6 }}>
+                  <span style={{ fontSize: '0.6rem', color: '#ff1744', fontWeight: 900, letterSpacing: '0.1em' }}>BIO_ASSESSMENT</span>
+                </div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: 0.6 }}>REG: {result?.repo?.repo?.toUpperCase() || 'UNREGISTERED'}</div>
+              </div>
+              <button 
+                onClick={() => setShowCostBreakdown(false)}
+                style={{ background: 'var(--bg-secondary)', border: 'none', color: 'var(--text-primary)', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >×</button>
+            </div>
+
+            <div style={{ padding: '32px 40px', overflowY: 'auto', flex: 1 }} className="custom-scrollbar">
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24, marginBottom: 32 }}>
+                 <div style={{ 
+                   fontSize: '3.2rem', filter: 'drop-shadow(0 0 10px rgba(255,23,68,0.3))',
+                   animation: 'pulse 3s infinite'
+                 }}>🩸</div>
+                 <div>
+                   <h2 style={{ fontSize: '1.9rem', fontWeight: 950, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1 }}>FRICTION HEMORRHAGE REPORT</h2>
+                   <p style={{ color: 'var(--scan-cyan)', fontSize: '0.8rem', margin: '4px 0 0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Biometric Engineering Audit</p>
+                 </div>
+              </div>
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                 {[
+                   { label: 'CI Pipeline Bottlenecks', value: frictionCost.ciBottleneck.cost, icon: '⚡', color: 'var(--scan-cyan)', desc: frictionCost.ciBottleneck.description, pct: 45 },
+                   { label: 'Review PR Latency', value: frictionCost.reviewDelay.cost, icon: '🕰️', color: 'var(--health-green)', desc: frictionCost.reviewDelay.description, pct: 30 },
+                   { label: 'Stale PR Conflicts', value: frictionCost.stalePRs.cost, icon: '🧬', color: 'var(--warning-amber)', desc: frictionCost.stalePRs.description, pct: 15 },
+                   { label: 'Vulnerability Risk', value: frictionCost.vulnerabilities.cost, icon: '☢️', color: 'var(--critical-red)', desc: `${frictionCost.vulnerabilities.riskExposure} unresolved critical items`, pct: 10 },
+                 ].map((item, i) => (
+                   <div key={i} style={{ 
+                     display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', 
+                     background: 'var(--bg-surface)', borderRadius: 14, border: '1px solid var(--glass-border)',
+                   }}>
+                      <div style={{ 
+                        width: 44, height: 44, borderRadius: 10, 
+                        background: `${item.color}10`, border: `1px solid ${item.color}20`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem'
+                      }}>{item.icon}</div>
+                      
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2 }}>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 800 }}>{item.label}</span>
+                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: item.color }}>${item.value.toLocaleString()}</span>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.desc}</div>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+
+              {/* Summary Block */}
+              <div style={{ 
+                marginTop: 24, padding: 24, borderRadius: 20, 
+                background: 'var(--bg-secondary)', 
+                border: '1px solid var(--glass-border)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+              }}>
+                 <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--scan-cyan)', textTransform: 'uppercase', fontWeight: 950, letterSpacing: '0.12em', marginBottom: 4 }}>Monthly Drain</div>
+                    <div style={{ fontSize: '2.5rem', fontWeight: 950, color: '#ff1744', letterSpacing: '-0.02em' }}>${frictionCost.total.toLocaleString()}</div>
+                 </div>
+
+                 <div style={{ flex: 1, paddingLeft: 24, borderLeft: '1px solid var(--glass-border)' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800, marginBottom: 4 }}>Annual Impact</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)' }}>${(frictionCost.total * 12).toLocaleString()}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--health-green)', marginTop: 2, fontWeight: 700 }}>RECOVERY RATING: OPTIMAL</div>
+                 </div>
+              </div>
+
+              <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
+                 <button 
+                  className="btn-hero-primary" 
+                  style={{ flex: 1, padding: '18px 24px', fontSize: '1rem', fontWeight: 900, background: 'linear-gradient(135deg, #ff1744, #d50000)', color: '#fff' }}
+                  onClick={() => { setShowCostBreakdown(false); setActiveTab('surgery'); }}
+                >
+                   PERFORM EMERGENCY REPAIR →
+                 </button>
+                 <button 
+                  className="btn-hero-secondary" 
+                  style={{ padding: '0 20px', borderRadius: 12 }}
+                  onClick={() => window.print()}
+                >
+                   🖨️
+                 </button>
+              </div>
+            </div>
+            
+            {/* HUD Scan Line Decor */}
+            <div style={{ 
+              height: 4, 
+              background: 'linear-gradient(90deg, transparent, var(--scan-cyan), transparent)',
+              animation: 'scan-move 3s linear infinite', flexShrink: 0
+            }} />
+          </div>
+        </div>
+      )}
+      {showTour && (
+        <ClinicalTour 
+          step={tourStep} 
+          onNext={() => setTourStep(s => s + 1)}
+          onClose={() => setShowTour(false)}
+          onSwitchTab={(tab: string) => setActiveTab(tab as any)}
+        />
+      )}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• MODAL: GLOBAL SEARCH (CMD+K) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {showGlobalSearch && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowGlobalSearch(false)}>
+          <div 
+            style={{ width: '100%', maxWidth: 600, background: 'var(--bg-frost)', border: '1px solid var(--scan-cyan)', borderRadius: 16, padding: 0, overflow: 'hidden', boxShadow: '0 0 50px rgba(0,229,255,0.2)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ padding: '20px', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: '1.2rem' }}>ðŸ”</span>
+              <input 
+                autoFocus 
+                placeholder="Seach Patient Registry (Repos, Teams, Diagnoses)..."
+                onKeyDown={e => e.key === 'Escape' && setShowGlobalSearch(false)}
+                style={{ flex: 1, background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: '1.2rem', outline: 'none', fontFamily: 'var(--font-mono)' }}
+              />
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-surface)', padding: '4px 8px', borderRadius: 4 }}>ESC</span>
+            </div>
+            <div style={{ padding: 12 }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', padding: '8px 12px', fontWeight: 800 }}>Recent Patients</div>
+              {scanHistory.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No recent diagnoses found.</div>
+              ) : (
+                scanHistory.map((h, i) => (
+                  <div key={i} style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 10, cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,229,255,0.05)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: '1.2rem' }}>ðŸ“</span>
+                      <div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 800 }}>{h.repo}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Diagnosed: {new Date(h.date).toLocaleDateString()}</div>
+                      </div>
+                    </div>
+                    <div className={`badge ${h.score >= 80 ? 'badge-success' : 'badge-medium'}`}>GRADE {h.grade}</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ padding: '12px 20px', background: 'rgba(0,0,0,0.3)', borderTop: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Found {scanHistory.length} records in Clinical Registry</div>
+              <div style={{ display: 'flex', gap: 10, fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                <span>↕️ Navigate</span>
+                <span>↩️ Select</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>{/* end scan-monitor-overlay */}
+        {/* ———————————— Cinematic Autopsy Replay ———————————— */}
+        {showAutopsy && autopsyData && (
+          <AutopsyReplay 
+            runId={autopsyData.runId}
+            repoName={result.repo.fullName}
+            errorFile={autopsyData.file}
+            errorLine={autopsyData.line}
+            logSnippet={autopsyData.logs}
+            onClose={() => setShowAutopsy(false)}
+          />
+        )}
+      </main>
+
+  );
+}
+

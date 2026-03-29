@@ -1,0 +1,33 @@
+# DevMRI — Automated DX Health Check
+# Add this to .github/workflows/devmri.yml in your repository
+name: DevMRI DX Scanner
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  dx-scan:
+    runs-on: ubuntu-latest
+    name: 🩻 DX Health Check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run DevMRI Scan
+        id: devmri
+        uses: urjitupadhya/DEVmri/devmri-action@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          scan-mode: pr
+          fail-threshold: 40  # Fail PR if DX Score drops below 40
+
+      - name: Print Results
+        run: |
+          echo "🩻 DX Score: ${{ steps.devmri.outputs.dx-score }}"
+          echo "📊 Grade: ${{ steps.devmri.outputs.dx-grade }}"
+          echo "💰 Friction Cost: ${{ steps.devmri.outputs.friction-cost }}/mo"

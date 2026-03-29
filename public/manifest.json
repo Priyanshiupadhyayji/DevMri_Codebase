@@ -1,0 +1,19 @@
+{
+  "name": "DevMRI — Developer Experience Diagnostic Platform",
+  "short_name": "DevMRI",
+  "description": "X-Ray your GitHub repository. Expose hidden friction. Perform AI Surgery. Get your DX Score in seconds.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#040608",
+  "theme_color": "#00e5ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["developer-tools", "productivity"],
+  "lang": "en"
+}

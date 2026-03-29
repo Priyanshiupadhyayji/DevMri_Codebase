@@ -1,0 +1,254 @@
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx
+    5:39  warning  'SimulationResult' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-unused-vars
+    5:57  warning  'Recommendation' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @typescript-eslint/no-unused-vars
+    9:3   warning  'ScatterChart' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
+    9:17  warning  'Scatter' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        @typescript-eslint/no-unused-vars
+    9:41  warning  'LineChart' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-unused-vars
+    9:52  warning  'Line' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+   23:10  warning  'showDuel' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+   30:10  warning  'copiedIdx' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             @typescript-eslint/no-unused-vars
+   41:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:41:5
+  39 |     if (!stored) { router.push('/'); return; }
+  40 |     const parsed = JSON.parse(stored) as FullScanResult;
+> 41 |     setResult(parsed);
+     |     ^^^^^^^^^ Avoid calling setState() directly within an effect
+  42 |     
+  43 |     if (storedVs) {
+  44 |       setVsResult(JSON.parse(storedVs) as FullScanResult);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/set-state-in-effect
+  116:9   warning  'copyToClipboard' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+  124:82  warning  'correlations' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          @typescript-eslint/no-unused-vars
+  126:9   warning  'gradeColor' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-unused-vars
+  208:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:208:14
+  206 |         {/* ΓöÇΓöÇΓöÇ MODULE TABS ΓöÇΓöÇΓöÇ */}
+  207 |         <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+> 208 |             <TabButton id="overview" label="Diagnostic Overview" icon="≡ƒ⌐║" />
+      |              ^^^^^^^^^ This component is created during render
+  209 |             <TabButton id="cicd" label="CI/CD X-Ray" icon="ΓÜí" />
+  210 |             <TabButton id="reviews" label="PR Radar" icon="≡ƒæÇ" />
+  211 |             <TabButton id="heatmap" label="Friction Heatmap" icon="≡ƒöÑ" />
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:139:21
+  137 |   const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+  138 |
+> 139 |   const TabButton = ({ id, label, icon }: { id: typeof activeTab; label: string; icon: string }) => (
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 140 |     <button
+      | ^^^^^^^^^^^
+> 141 |       className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+      | ^^^^^^^^^^^
+> 142 |       onClick={() => setActiveTab(id)}
+      | ^^^^^^^^^^^
+> 143 |       style={{ fontSize: '0.8rem', padding: '8px 16px', fontWeight: activeTab === id ? 700 : 500 }}
+      | ^^^^^^^^^^^
+> 144 |     >
+      | ^^^^^^^^^^^
+> 145 |       {icon} {label}
+      | ^^^^^^^^^^^
+> 146 |     </button>
+      | ^^^^^^^^^^^
+> 147 |   );
+      | ^^^^ The component is created during render here
+  148 |
+  149 |   // Radar data for Duel
+  150 |   const duelRadarData = vsResult ? [                                   react-hooks/static-components
+  209:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:209:14
+  207 |         <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+  208 |             <TabButton id="overview" label="Diagnostic Overview" icon="≡ƒ⌐║" />
+> 209 |             <TabButton id="cicd" label="CI/CD X-Ray" icon="ΓÜí" />
+      |              ^^^^^^^^^ This component is created during render
+  210 |             <TabButton id="reviews" label="PR Radar" icon="≡ƒæÇ" />
+  211 |             <TabButton id="heatmap" label="Friction Heatmap" icon="≡ƒöÑ" />
+  212 |             <TabButton id="deps" label="Dependency MRI" icon="≡ƒôª" />
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:139:21
+  137 |   const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+  138 |
+> 139 |   const TabButton = ({ id, label, icon }: { id: typeof activeTab; label: string; icon: string }) => (
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 140 |     <button
+      | ^^^^^^^^^^^
+> 141 |       className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+      | ^^^^^^^^^^^
+> 142 |       onClick={() => setActiveTab(id)}
+      | ^^^^^^^^^^^
+> 143 |       style={{ fontSize: '0.8rem', padding: '8px 16px', fontWeight: activeTab === id ? 700 : 500 }}
+      | ^^^^^^^^^^^
+> 144 |     >
+      | ^^^^^^^^^^^
+> 145 |       {icon} {label}
+      | ^^^^^^^^^^^
+> 146 |     </button>
+      | ^^^^^^^^^^^
+> 147 |   );
+      | ^^^^ The component is created during render here
+  148 |
+  149 |   // Radar data for Duel
+  150 |   const duelRadarData = vsResult ? [  react-hooks/static-components
+  210:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:210:14
+  208 |             <TabButton id="overview" label="Diagnostic Overview" icon="≡ƒ⌐║" />
+  209 |             <TabButton id="cicd" label="CI/CD X-Ray" icon="ΓÜí" />
+> 210 |             <TabButton id="reviews" label="PR Radar" icon="≡ƒæÇ" />
+      |              ^^^^^^^^^ This component is created during render
+  211 |             <TabButton id="heatmap" label="Friction Heatmap" icon="≡ƒöÑ" />
+  212 |             <TabButton id="deps" label="Dependency MRI" icon="≡ƒôª" />
+  213 |             {vsResult && <TabButton id="duel" label="Duel Comparison" icon="ΓÜö∩╕Å" />}
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:139:21
+  137 |   const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+  138 |
+> 139 |   const TabButton = ({ id, label, icon }: { id: typeof activeTab; label: string; icon: string }) => (
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 140 |     <button
+      | ^^^^^^^^^^^
+> 141 |       className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+      | ^^^^^^^^^^^
+> 142 |       onClick={() => setActiveTab(id)}
+      | ^^^^^^^^^^^
+> 143 |       style={{ fontSize: '0.8rem', padding: '8px 16px', fontWeight: activeTab === id ? 700 : 500 }}
+      | ^^^^^^^^^^^
+> 144 |     >
+      | ^^^^^^^^^^^
+> 145 |       {icon} {label}
+      | ^^^^^^^^^^^
+> 146 |     </button>
+      | ^^^^^^^^^^^
+> 147 |   );
+      | ^^^^ The component is created during render here
+  148 |
+  149 |   // Radar data for Duel
+  150 |   const duelRadarData = vsResult ? [    react-hooks/static-components
+  211:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:211:14
+  209 |             <TabButton id="cicd" label="CI/CD X-Ray" icon="ΓÜí" />
+  210 |             <TabButton id="reviews" label="PR Radar" icon="≡ƒæÇ" />
+> 211 |             <TabButton id="heatmap" label="Friction Heatmap" icon="≡ƒöÑ" />
+      |              ^^^^^^^^^ This component is created during render
+  212 |             <TabButton id="deps" label="Dependency MRI" icon="≡ƒôª" />
+  213 |             {vsResult && <TabButton id="duel" label="Duel Comparison" icon="ΓÜö∩╕Å" />}
+  214 |         </div>
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:139:21
+  137 |   const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+  138 |
+> 139 |   const TabButton = ({ id, label, icon }: { id: typeof activeTab; label: string; icon: string }) => (
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 140 |     <button
+      | ^^^^^^^^^^^
+> 141 |       className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+      | ^^^^^^^^^^^
+> 142 |       onClick={() => setActiveTab(id)}
+      | ^^^^^^^^^^^
+> 143 |       style={{ fontSize: '0.8rem', padding: '8px 16px', fontWeight: activeTab === id ? 700 : 500 }}
+      | ^^^^^^^^^^^
+> 144 |     >
+      | ^^^^^^^^^^^
+> 145 |       {icon} {label}
+      | ^^^^^^^^^^^
+> 146 |     </button>
+      | ^^^^^^^^^^^
+> 147 |   );
+      | ^^^^ The component is created during render here
+  148 |
+  149 |   // Radar data for Duel
+  150 |   const duelRadarData = vsResult ? [                                                                   react-hooks/static-components
+  212:14  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:212:14
+  210 |             <TabButton id="reviews" label="PR Radar" icon="≡ƒæÇ" />
+  211 |             <TabButton id="heatmap" label="Friction Heatmap" icon="≡ƒöÑ" />
+> 212 |             <TabButton id="deps" label="Dependency MRI" icon="≡ƒôª" />
+      |              ^^^^^^^^^ This component is created during render
+  213 |             {vsResult && <TabButton id="duel" label="Duel Comparison" icon="ΓÜö∩╕Å" />}
+  214 |         </div>
+  215 |
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:139:21
+  137 |   const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+  138 |
+> 139 |   const TabButton = ({ id, label, icon }: { id: typeof activeTab; label: string; icon: string }) => (
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 140 |     <button
+      | ^^^^^^^^^^^
+> 141 |       className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+      | ^^^^^^^^^^^
+> 142 |       onClick={() => setActiveTab(id)}
+      | ^^^^^^^^^^^
+> 143 |       style={{ fontSize: '0.8rem', padding: '8px 16px', fontWeight: activeTab === id ? 700 : 500 }}
+      | ^^^^^^^^^^^
+> 144 |     >
+      | ^^^^^^^^^^^
+> 145 |       {icon} {label}
+      | ^^^^^^^^^^^
+> 146 |     </button>
+      | ^^^^^^^^^^^
+> 147 |   );
+      | ^^^^ The component is created during render here
+  148 |
+  149 |   // Radar data for Duel
+  150 |   const duelRadarData = vsResult ? [                                                                                                                                    react-hooks/static-components
+  213:27  error    Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:213:27
+  211 |             <TabButton id="heatmap" label="Friction Heatmap" icon="≡ƒöÑ" />
+  212 |             <TabButton id="deps" label="Dependency MRI" icon="≡ƒôª" />
+> 213 |             {vsResult && <TabButton id="duel" label="Duel Comparison" icon="ΓÜö∩╕Å" />}
+      |                           ^^^^^^^^^ This component is created during render
+  214 |         </div>
+  215 |
+  216 |         {/* ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ TAB: Duel Comparison ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ */}
+
+C:\Users\urjit upadhyay\Dropbox (Old)\PC\Desktop\X-ray\devmri-app\src\app\dashboard\page.tsx:139:21
+  137 |   const sev = (s: string) => s === 'CRITICAL' ? 'badge-critical' : s === 'HIGH' ? 'badge-high' : s === 'MEDIUM' ? 'badge-medium' : 'badge-low';
+  138 |
+> 139 |   const TabButton = ({ id, label, icon }: { id: typeof activeTab; label: string; icon: string }) => (
+      |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 140 |     <button
+      | ^^^^^^^^^^^
+> 141 |       className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+      | ^^^^^^^^^^^
+> 142 |       onClick={() => setActiveTab(id)}
+      | ^^^^^^^^^^^
+> 143 |       style={{ fontSize: '0.8rem', padding: '8px 16px', fontWeight: activeTab === id ? 700 : 500 }}
+      | ^^^^^^^^^^^
+> 144 |     >
+      | ^^^^^^^^^^^
+> 145 |       {icon} {label}
+      | ^^^^^^^^^^^
+> 146 |     </button>
+      | ^^^^^^^^^^^
+> 147 |   );
+      | ^^^^ The component is created during render here
+  148 |
+  149 |   // Radar data for Duel
+  150 |   const duelRadarData = vsResult ? [                                                                                                                  react-hooks/static-components
+
+Γ£û 18 problems (7 errors, 11 warnings)
+

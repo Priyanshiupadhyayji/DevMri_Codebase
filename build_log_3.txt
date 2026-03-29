@@ -1,0 +1,23 @@
+
+> devmri@1.0.0 build
+> next build
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 90s
+  Running TypeScript ...
+Failed to compile.
+
+./src/app/dashboard/page.tsx:4082:10
+Type error: Cannot find name 'CinematicTour'.
+
+  4080 |       )}
+  4081 |       {showTour && (
+> 4082 |         <CinematicTour 
+       |          ^
+  4083 |           step={tourStep} 
+  4084 |           onNext={() => setTourStep(s => s + 1)}
+  4085 |           onClose={() => setShowTour(false)}
+Next.js build worker exited with code: 1 and signal: null
