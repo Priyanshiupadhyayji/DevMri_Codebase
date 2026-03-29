@@ -63,7 +63,7 @@ Slow CI (Track A: 12m builds)
 npm install
 npm run dev
 # Open: http://localhost:3000/dashboard?owner=demo&repo=anything
-# See: All 5 tracks (A, B, C, E, G) with cross-track friction analysis
+# See: All 8 tracks with cross-track friction analysis
 ```
 
 ### **Option 2: Scan Real Repos (1 GitHub Token)**
@@ -73,7 +73,7 @@ npm run dev
 # 3. Add: GITHUB_TOKEN=ghp_your_token_here
 npm run dev
 # 4. Scan: http://localhost:3000/dashboard?owner=facebook&repo=react
-# Shows: All 5 Tracks (A, B, C, E, G) + Cross-track insights
+# Shows: All 8 tracks + Cross-track insights
 ```
 
 ### **Option 3: Full Features (+ ML)**
@@ -191,13 +191,6 @@ Impact: All 8 tracks improve simultaneously (correlation analysis = +4 bonus)
 - Specific code examples for each recommendation
 - Cross-track correlation insights
 
-### **Presentation (15%)**
-- "Judges, we scan 8 DX dimensions, not just 1-2"
-- Crystal-clear multi-track narrative
-- Real data demo showing all tracks in action
-- Actionable recommendations per track
-- Quantified ROI across all dimensions
-
 ---
 
 ## 🎓 **How to Win Judges**
@@ -220,15 +213,6 @@ Impact: All 8 tracks improve simultaneously (correlation analysis = +4 bonus)
 4:30  "All recommendations have code examples judges can inspect"
 5:00  "Questions?"
 ```
-
-### **Pre-Recorded Demo (For Backup)**
-Instead of live demo, pre-record scanning `facebook/react`:
-- Tap scan → Show all 8 tracks loading in real-time
-- Highlight each track result (A, B, C, D, E, F, G, H)
-- Click into recommendations → Show code examples
-- Apply fixes → Re-scan → Score improves 52→88
-- Show cross-track correlation dashboard
-- Emphasize: 8 tracks vs competitors' 1-2 tracks
 
 ---
 
@@ -327,14 +311,6 @@ Required for judges:
 
 ---
 
-## 📚 **Further Reading**
-
-- [5-Track Submission Strategy](./HACKATHON_STRATEGY.md)
-- [Cross-Track Friction Analysis](./HACKATHON_STRATEGY.md#cross-track-integration)
-- [Track-by-Track Implementation Details](./CONTEXT.md)
-- [API Documentation](./src/app/api)
-- [All Flaws Fixed + Integrated](./FLAWS_FIXED.md)
-
 ---
 
 ## 📞 **Support**
@@ -348,4 +324,4 @@ Required for judges:
 
 ---
 
-**Made with 🩻 for teams drowning in DX problems across 5 dimensions: slow CI, flaky tests, stale docs, bloated deps, stuck reviews.**
+**Made with 🩻 for teams drowning in DX problems across 8 dimensions.**
