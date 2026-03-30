@@ -12,7 +12,10 @@ import {
   TrendPoint, ReviewerStats, StalePR, PRDataPoint, VulnDetail,
   FreshnessItem, LicenseRisk, BusFactorResult, KnowledgeSilo, SecurityPosture,
   CommitHygieneResult, RepoMetadata, FrictionHeatmap, Hotspot, NecrosisScan, NecrosisFile,
-  CodeQualityResult, DeveloperFlowResult, EnvironmentIntegrityResult
+  CodeQualityResult, DeveloperFlowResult, EnvironmentIntegrityResult,
+  BranchHealthResult, StaleBranch, WorkflowSummary, JobDetail, StepDetail,
+  FailureCategory, ConcurrencyMetric, CostEstimate, RecoveryMetric,
+  BranchPerformance, DeploymentFrequency
 } from './types';
 
 
@@ -64,27 +67,31 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
   const octokit = createOctokit(token);
 
   try {
+    // ── Fetch up to 100 completed runs for deep analysis ──
     const { data: runsData } = await octokit.actions.listWorkflowRunsForRepo({
-      owner, repo, per_page: 50, status: 'completed' as const,
+      owner, repo, per_page: 100, status: 'completed' as const,
     });
-    
+
     if (!runsData || runsData.workflow_runs.length === 0) return null;
 
     const runs = runsData.workflow_runs;
     if (runs.length === 0) return null;
 
-    // Basic metrics
+    // ── Basic metrics ──
     const durations = runs.map(r => {
       const start = new Date(r.run_started_at || r.created_at).getTime();
       const end = new Date(r.updated_at).getTime();
       return (end - start) / 60000;
-    }).filter(d => d > 0 && d < 120);
+    }).filter(d => d > 0 && d < 300);
 
     const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
     const successCount = runs.filter(r => r.conclusion === 'success').length;
+    const failureCount = runs.filter(r => r.conclusion === 'failure').length;
+    const timeoutCount = runs.filter(r => r.conclusion === 'timed_out').length;
+    const cancelledCount = runs.filter(r => r.conclusion === 'cancelled').length;
     const successRate = (successCount / runs.length) * 100;
 
-    // Flaky detection (same SHA, different outcomes)
+    // ── Flaky detection (same SHA, different outcomes) ──
     const shaGroups = new Map<string, string[]>();
     runs.forEach(r => {
       const prev = shaGroups.get(r.head_sha) || [];
@@ -95,6 +102,7 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
       .filter(conclusions => conclusions.includes('success') && conclusions.includes('failure')).length;
     const flakyRate = shaGroups.size > 0 ? (flakyCount / shaGroups.size) * 100 : 0;
 
+    // ── Failure heatmap (7 days × 24 hours) ──
     const heatmap: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
     runs.filter(r => r.conclusion === 'failure').forEach(r => {
       const d = new Date(r.created_at);
@@ -109,13 +117,18 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
     });
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-    const trend: TrendPoint[] = runs.map((r, i) => ({
-      runNumber: runs.length - i,
-      date: r.created_at,
-      durationMinutes: durations[i] || 0,
-      conclusion: r.conclusion || 'unknown',
-    })).reverse();
+    // ── Build time trend ──
+    const trend: TrendPoint[] = runs.map((r, i) => {
+      const dur = durations[i] || 0;
+      return {
+        runNumber: runs.length - i,
+        date: r.created_at,
+        durationMinutes: dur,
+        conclusion: r.conclusion || 'unknown',
+      };
+    }).reverse();
 
+    // ── Trend direction (linear regression) ──
     const n = durations.length;
     let trendSlope = 0;
     if (n > 2) {
@@ -128,47 +141,174 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
     }
     const trendDir = trendSlope > 0.1 ? 'worsening' : trendSlope < -0.1 ? 'improving' : 'stable';
 
-    const stageMap = new Map<string, { durations: number[]; successes: number; total: number }>();
-    const sampled = runs.slice(0, 5);
-    const failingFilesSet = new Set<string>();
+    // ═══════════════════════════════════════
+    // DEEP PIPELINE ANALYSIS
+    // ═══════════════════════════════════════
 
+    // ── Workflow summary ──
+    const workflowMap = new Map<string, { runs: typeof runs; path: string; triggers: Set<string> }>();
+    for (const run of runs) {
+      const name = run.name || 'Unknown';
+      const existing = workflowMap.get(name);
+      if (existing) {
+        existing.runs.push(run);
+      } else {
+        workflowMap.set(name, { runs: [run], path: run.path || '', triggers: new Set() });
+      }
+    }
+
+    // Fetch workflow files for trigger info
+    const workflowFiles: Record<string, string> = {};
+    try {
+      const { data: contents } = await octokit.repos.getContent({ owner, repo, path: '.github/workflows' });
+      if (Array.isArray(contents)) {
+        for (const file of contents.slice(0, 10)) {
+          if (file.name.endsWith('.yml') || file.name.endsWith('.yaml')) {
+            const yaml = await fetchFileContent(octokit, owner, repo, file.path);
+            if (yaml) {
+              workflowFiles[file.name] = yaml;
+              // Parse triggers
+              const triggerMatch = yaml.match(/^on:\s*\n([\s\S]*?)(?=\n\w|\njobs:)/m);
+              if (triggerMatch) {
+                const triggers = triggerMatch[1].match(/^\s+-?\s*(\w+)/gm)?.map(t => t.trim().replace(/^-\s*/, '')) || [];
+                // Match workflow by name
+                const nameMatch = yaml.match(/name:\s*(.+)/);
+                if (nameMatch) {
+                  const wfName = nameMatch[1].trim().replace(/['"]/g, '');
+                  const wf = workflowMap.get(wfName);
+                  if (wf) triggers.forEach(t => wf.triggers.add(t));
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch { /* skip */ }
+
+    const workflows: WorkflowSummary[] = Array.from(workflowMap.entries()).map(([name, data]) => {
+      const wfDurations = data.runs.map(r => {
+        const start = new Date(r.run_started_at || r.created_at).getTime();
+        const end = new Date(r.updated_at).getTime();
+        return (end - start) / 60000;
+      }).filter(d => d > 0);
+      const wfSuccesses = data.runs.filter(r => r.conclusion === 'success').length;
+      return {
+        name,
+        path: data.path,
+        totalRuns: data.runs.length,
+        successRate: Math.round((wfSuccesses / data.runs.length) * 1000) / 10,
+        avgDurationMinutes: wfDurations.length > 0 ? Math.round((wfDurations.reduce((a, b) => a + b, 0) / wfDurations.length) * 100) / 100 : 0,
+        lastRunDate: data.runs[0]?.created_at || '',
+        lastConclusion: data.runs[0]?.conclusion || 'unknown',
+        triggers: Array.from(data.triggers),
+      };
+    }).sort((a, b) => b.totalRuns - a.totalRuns);
+
+    // ── Deep job & step analysis (sample up to 10 runs) ──
+    const stageMap = new Map<string, { durations: number[]; successes: number; total: number }>();
+    const jobMap = new Map<string, { durations: number[]; successes: number; total: number; runner: string; workflow: string; steps: Map<string, { durations: number[]; failures: number; total: number }> }>();
+    const failingFilesSet = new Set<string>();
+    const failureCategories: Record<string, number> = { test: 0, lint: 0, build: 0, deploy: 0, timeout: 0, infra: 0, unknown: 0 };
+    const branchRuns = new Map<string, { total: number; successes: number; durations: number[] }>();
+    let maxParallel = 0;
+    let totalQueueTime = 0;
+    let queueTimeCount = 0;
+
+    const sampled = runs.slice(0, 10);
     for (const run of sampled) {
+      // Track branch performance
+      const branch = run.head_branch || 'unknown';
+      const bData = branchRuns.get(branch) || { total: 0, successes: 0, durations: [] as number[] };
+      bData.total++;
+      if (run.conclusion === 'success') bData.successes++;
+      const runDur = (new Date(run.updated_at).getTime() - new Date(run.run_started_at || run.created_at).getTime()) / 60000;
+      if (runDur > 0 && runDur < 300) bData.durations.push(runDur);
+      branchRuns.set(branch, bData);
+
       try {
         const { data: jobsData } = await octokit.actions.listJobsForWorkflowRun({
           owner, repo, run_id: run.id,
         });
 
+        // Concurrency tracking
+        const runningJobs = jobsData.jobs.filter(j => j.status === 'in_progress').length;
+        if (runningJobs > maxParallel) maxParallel = runningJobs;
+
+        // Queue time
         for (const job of jobsData.jobs) {
+          if (job.started_at && job.created_at) {
+            const queueSec = (new Date(job.started_at).getTime() - new Date(job.created_at).getTime()) / 1000;
+            if (queueSec > 0 && queueSec < 3600) {
+              totalQueueTime += queueSec;
+              queueTimeCount++;
+            }
+          }
+        }
+
+        for (const job of jobsData.jobs) {
+          const jobName = job.name;
+          const wfName = run.name || 'Unknown';
+          const runnerLabel = job.runner_name || job.labels?.join(', ') || 'unknown';
+
+          // Job-level tracking
+          const jKey = `${wfName}::${jobName}`;
+          const jData = jobMap.get(jKey) || { durations: [] as number[], successes: 0, total: 0, runner: runnerLabel, workflow: wfName, steps: new Map<string, { durations: number[]; failures: number; total: number }>() };
+          jData.total++;
+          if (job.conclusion === 'success') jData.successes++;
+
+          if (job.started_at && job.completed_at) {
+            const jobDur = (new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 60000;
+            if (jobDur > 0 && jobDur < 120) jData.durations.push(jobDur);
+          }
+
+          // Failure categorization
           if (job.conclusion === 'failure') {
-            // Attempt to grab logs for the failing job to find the SPECIFIC file (Track B)
+            const jobNameLower = jobName.toLowerCase();
+            if (/test|jest|spec|mocha|pytest|unit|e2e|integration/.test(jobNameLower)) failureCategories.test++;
+            else if (/lint|eslint|prettier|style|format|check/.test(jobNameLower)) failureCategories.lint++;
+            else if (/build|compile|bundle|webpack|tsc|typescript/.test(jobNameLower)) failureCategories.build++;
+            else if (/deploy|release|publish|ship/.test(jobNameLower)) failureCategories.deploy++;
+            else failureCategories.unknown++;
+
+            // Failing file detection from logs
             try {
               const { data: logUrl } = await octokit.actions.downloadJobLogsForWorkflowRun({
                 owner, repo, job_id: job.id,
               });
-              // Note: This returns a redirect URL. Real implementation would fetch and parse.
-              // For demo purposes, we log the attempt and simulate parse if reachable.
               const logRes = await fetch(logUrl as unknown as string, { signal: AbortSignal.timeout(3000) });
               if (logRes.ok) {
                 const logText = await logRes.text();
-                // Regex for Jest, Python, Go test failures
                 const matches = logText.matchAll(/(FAIL|FAILED|Error:)\s+([\w\/\.-]+(?:\.\w+))(?:\s|:|$)/gi);
                 for (const m of matches) if (m[2]) failingFilesSet.add(m[2]);
+
+                // Detect timeout from logs
+                if (/timed out|timeout|exceeded.*time/i.test(logText)) failureCategories.timeout++;
               }
             } catch {
-               // Fallback: heuristic based on step name
-               job.steps?.filter(s => s.conclusion === 'failure').forEach(s => {
-                 if (s.name.includes('.test') || s.name.includes('.spec') || s.name.includes('.py')) failingFilesSet.add(s.name);
-               });
+              job.steps?.filter(s => s.conclusion === 'failure').forEach(s => {
+                if (s.name.includes('.test') || s.name.includes('.spec') || s.name.includes('.py')) failingFilesSet.add(s.name);
+              });
             }
           }
 
+          // Step-level tracking
           if (job.steps) {
             for (const step of job.steps) {
               if (step.started_at && step.completed_at && step.name) {
-                const dur = (new Date(step.completed_at).getTime() - new Date(step.started_at).getTime()) / 60000;
-                if (dur > 0) {
-                  const prev = stageMap.get(step.name) || { durations: [], successes: 0, total: 0 };
-                  prev.durations.push(dur);
+                const dur = (new Date(step.completed_at).getTime() - new Date(step.started_at).getTime()) / 1000;
+
+                // Per-job step tracking
+                const sData = jData.steps.get(step.name) || { durations: [] as number[], failures: 0, total: 0 };
+                sData.total++;
+                if (dur > 0) sData.durations.push(dur);
+                if (step.conclusion === 'failure') sData.failures++;
+                jData.steps.set(step.name, sData);
+
+                // Global stage tracking (existing)
+                const durMin = dur / 60;
+                if (durMin > 0) {
+                  const prev = stageMap.get(step.name) || { durations: [] as number[], successes: 0, total: 0 };
+                  prev.durations.push(durMin);
                   prev.total++;
                   if (step.conclusion === 'success') prev.successes++;
                   stageMap.set(step.name, prev);
@@ -176,10 +316,13 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
               }
             }
           }
+
+          jobMap.set(jKey, jData);
         }
-      } catch { /* Skip */ }
+      } catch { /* Skip run */ }
     }
 
+    // ── Build stage list (existing) ──
     const totalStageTime = Array.from(stageMap.values())
       .reduce((sum, s) => sum + (s.durations.reduce((a, b) => a + b, 0) / s.durations.length), 0);
 
@@ -200,33 +343,156 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
 
     const bottleneck = stages[0] || { name: 'Unknown', avgMinutes: 0, percentage: 0 };
 
-    const firstRun = new Date(runs[runs.length - 1].created_at).getTime();
-    const lastRun = new Date(runs[0].created_at).getTime();
-    const daySpan = Math.max(1, (lastRun - firstRun) / (1000 * 60 * 60 * 24));
-    const avgDailyRuns = runs.length / daySpan;
+    // ── Build job details list ──
+    const jobs: JobDetail[] = Array.from(jobMap.entries()).map(([key, data]) => {
+      const avg = data.durations.length > 0 ? data.durations.reduce((a, b) => a + b, 0) / data.durations.length : 0;
+      const steps: StepDetail[] = Array.from(data.steps.entries()).map(([sName, sData]) => {
+        const sAvg = sData.durations.length > 0 ? sData.durations.reduce((a, b) => a + b, 0) / sData.durations.length : 0;
+        return {
+          name: sName,
+          avgDurationSeconds: Math.round(sAvg * 10) / 10,
+          maxDurationSeconds: Math.round(Math.max(...(sData.durations.length > 0 ? sData.durations : [0])) * 10) / 10,
+          failureRate: sData.total > 0 ? Math.round((sData.failures / sData.total) * 1000) / 10 : 0,
+          status: (sData.total > 0 && sData.failures / sData.total > 0.3) ? 'bottleneck' : (sAvg > 60 ? 'warning' : 'healthy'),
+        };
+      }).sort((a, b) => b.avgDurationSeconds - a.avgDurationSeconds);
 
-    const workflowFiles: Record<string, string> = {};
-    try {
-      const { data: contents } = await octokit.repos.getContent({ owner, repo, path: '.github/workflows' });
-      if (Array.isArray(contents)) {
-        for (const file of contents.slice(0, 3)) {
-          if (file.name.endsWith('.yml') || file.name.endsWith('.yaml')) {
-            const yaml = await fetchFileContent(octokit, owner, repo, file.path);
-            if (yaml) workflowFiles[file.name] = yaml;
-          }
-        }
-      }
-    } catch { /* skip */ }
+      return {
+        name: key.split('::')[1],
+        workflowName: data.workflow,
+        totalExecutions: data.total,
+        successRate: data.total > 0 ? Math.round((data.successes / data.total) * 1000) / 10 : 100,
+        avgDurationMinutes: Math.round(avg * 100) / 100,
+        maxDurationMinutes: Math.round((data.durations.length > 0 ? Math.max(...data.durations) : 0) * 100) / 100,
+        minDurationMinutes: Math.round((data.durations.length > 0 ? Math.min(...data.durations) : 0) * 100) / 100,
+        runnerLabel: data.runner,
+        status: avg > 10 ? 'bottleneck' : avg > 5 ? 'warning' : 'healthy',
+        steps,
+      };
+    }).sort((a, b) => b.avgDurationMinutes - a.avgDurationMinutes);
 
-    // Enhanced Track B: Test Health Analysis
-    const testSteps = Array.from(stageMap.entries()).filter(([name]) => /test|jest|spec|mocha|pytest|unit|e2e/i.test(name));
-    const flakyTestDetails: FlakyTestDetails = {
-      flakyCount: testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.9).length,
-      flakyPercentage: testSteps.length > 0 ? Math.round((testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.9).length / testSteps.length) * 100) : 0,
-      likelyProblems: testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.85).map(([n, s]) => `${n} (${Math.round((s.successes/s.total)*100)}% pass rate)`),
-      failingFiles: Array.from(failingFilesSet).slice(0, 10),
+    // ── Failure breakdown ──
+    const totalFailures = Object.values(failureCategories).reduce((a, b) => a + b, 0);
+    const failureBreakdown: FailureCategory[] = Object.entries(failureCategories)
+      .filter(([_, count]) => count > 0)
+      .map(([cat, count]) => ({
+        category: cat as FailureCategory['category'],
+        count,
+        percentage: totalFailures > 0 ? Math.round((count / totalFailures) * 1000) / 10 : 0,
+        examples: [],
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // ── Concurrency metrics ──
+    const concurrency: ConcurrencyMetric = {
+      maxParallelJobs: maxParallel || jobs.length,
+      avgParallelJobs: Math.round((jobs.reduce((sum, j) => sum + j.totalExecutions, 0) / Math.max(1, sampled.length)) * 10) / 10,
+      queuedRuns: runs.filter(r => r.status === 'queued').length,
+      avgQueueTimeSeconds: queueTimeCount > 0 ? Math.round(totalQueueTime / queueTimeCount) : 0,
     };
 
+    // ── Cost estimate (GitHub Actions pricing: $0.008/min for Linux) ──
+    const totalMinutes = durations.reduce((a, b) => a + b, 0);
+    const costEstimate: CostEstimate = {
+      totalMinutes: Math.round(totalMinutes),
+      estimatedMonthlyCostUSD: Math.round(totalMinutes * 0.008 * 100) / 100,
+      topConsumer: workflows[0]?.name || 'N/A',
+      topConsumerMinutes: workflows[0] ? Math.round(workflows[0].avgDurationMinutes * workflows[0].totalRuns) : 0,
+    };
+
+    // ── Recovery metrics ──
+    let currentStreak = 0;
+    for (let i = runs.length - 1; i >= 0; i--) {
+      if (runs[i].conclusion === 'success') currentStreak++;
+      else break;
+    }
+    const lastFailureIdx = runs.findIndex(r => r.conclusion === 'failure');
+    const lastIncidentDate = lastFailureIdx >= 0 ? runs[lastFailureIdx].created_at : null;
+    let runsToRecovery = 0;
+    if (lastFailureIdx >= 0) {
+      for (let i = lastFailureIdx - 1; i >= 0; i--) {
+        runsToRecovery++;
+        if (runs[i].conclusion === 'success') break;
+      }
+    }
+    const recovery: RecoveryMetric = {
+      avgRunsToRecovery: runsToRecovery || 1,
+      lastIncidentDate,
+      timeToLastRecoveryMinutes: lastFailureIdx > 0 ? durations[lastFailureIdx - 1] || null : null,
+      currentStreak,
+    };
+
+    // ── Branch performance ──
+    const branchPerformance: BranchPerformance[] = Array.from(branchRuns.entries())
+      .map(([branch, data]) => ({
+        branch,
+        runs: data.total,
+        successRate: data.total > 0 ? Math.round((data.successes / data.total) * 1000) / 10 : 100,
+        avgDurationMinutes: data.durations.length > 0 ? Math.round((data.durations.reduce((a, b) => a + b, 0) / data.durations.length) * 100) / 100 : 0,
+      }))
+      .sort((a, b) => b.runs - a.runs)
+      .slice(0, 10);
+
+    // ── Deployment frequency ──
+    const deployRuns = runs.filter(r => /deploy|release|publish/i.test(r.name || ''));
+    const deploymentFrequency: DeploymentFrequency | null = deployRuns.length > 0 ? {
+      totalDeployments: deployRuns.length,
+      avgPerDay: Math.round((deployRuns.length / Math.max(1, (new Date(runs[0].created_at).getTime() - new Date(runs[runs.length - 1].created_at).getTime()) / 86400000)) * 10) / 10,
+      deploymentSuccessRate: Math.round((deployRuns.filter(r => r.conclusion === 'success').length / deployRuns.length) * 1000) / 10,
+      lastDeploymentDate: deployRuns[0]?.created_at || null,
+    } : null;
+
+    // ── Longest & shortest runs ──
+    const runsWithDuration = runs.map((r, i) => ({
+      id: r.id,
+      durationMinutes: durations[i] || 0,
+      workflow: r.name || 'Unknown',
+      date: r.created_at,
+    })).filter(r => r.durationMinutes > 0);
+
+    const longestRun = runsWithDuration.length > 0 ? runsWithDuration.reduce((a, b) => a.durationMinutes > b.durationMinutes ? a : b) : null;
+    const shortestRun = runsWithDuration.length > 0 ? runsWithDuration.reduce((a, b) => a.durationMinutes < b.durationMinutes ? a : b) : null;
+
+    // ── Success rate over time (daily) ──
+    const dailyBuckets = new Map<string, { total: number; successes: number }>();
+    for (const run of runs) {
+      const day = run.created_at.split('T')[0];
+      const bucket = dailyBuckets.get(day) || { total: 0, successes: 0 };
+      bucket.total++;
+      if (run.conclusion === 'success') bucket.successes++;
+      dailyBuckets.set(day, bucket);
+    }
+    const successOverTime: TrendPoint[] = Array.from(dailyBuckets.entries())
+      .map(([date, data]) => ({
+        runNumber: 0,
+        date,
+        durationMinutes: Math.round((data.successes / data.total) * 1000) / 10,
+        conclusion: data.successes === data.total ? 'success' : 'failure',
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-30);
+
+    // ── Failure runs detail ──
+    const failureRuns = runs
+      .filter(r => r.conclusion === 'failure')
+      .slice(0, 10)
+      .map((r, i) => ({
+        id: r.id,
+        conclusion: r.conclusion || 'failure',
+        workflow: r.name || 'Unknown',
+        date: r.created_at,
+        durationMinutes: durations[runs.indexOf(r)] || 0,
+        url: r.html_url,
+      }));
+
+    // ── Time slots analysis (which hours see most activity) ──
+    const timeSlotActivity = Array(24).fill(0);
+    runs.forEach(r => {
+      const h = new Date(r.created_at).getUTCHours();
+      timeSlotActivity[h]++;
+    });
+
+    // ── Job log insights (existing, enhanced) ──
     const jobLogInsights = Array.from(stageMap.entries())
       .filter(([_, s]) => (s.durations.reduce((a, b) => a + b, 0) / s.durations.length) > 1.5)
       .map(([name, s]) => {
@@ -236,24 +502,66 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
         if (/test|jest/i.test(name)) {
           recommendations.push({ title: 'Parallelize Test Execution', description: 'Splitting tests across parallel workers can reduce duration by 60%+.', estimatedSavings: Math.round(avg * 0.6 * 10) / 10, difficulty: 'easy' as const, example: 'npx jest --maxWorkers=4' });
         }
+        if (/install|npm ci|yarn|pnpm/i.test(name)) {
+          recommendations.push({ title: 'Enable Dependency Caching', description: 'Cache node_modules to reduce install time by ~70%.', estimatedSavings: Math.round(avg * 0.7 * 10) / 10, difficulty: 'easy' as const, example: 'uses: actions/cache@v3\nwith:\n  path: ~/.npm\n  key: ${{ runner.os }}-node-${{ hashFiles("**/package-lock.json") }}' });
+        }
+        if (/build|compile|webpack/i.test(name)) {
+          recommendations.push({ title: 'Incremental Build', description: 'Use incremental compilation and build caching.', estimatedSavings: Math.round(avg * 0.4 * 10) / 10, difficulty: 'medium' as const, example: 'Enable --incremental flag in tsconfig.json' });
+        }
         return {
           jobName: 'Pipeline Anatomy',
           bottlenecks: [{ stepName: name, duration: avg, percentage: pct, opportunity: recommendations[0]?.title || null }],
-          insights: [pct > 35 ? `High-cost step: "${name}"` : ''],
-          recommendations
+          insights: [pct > 35 ? `High-cost step: "${name}" consumes ${Math.round(pct)}% of total pipeline time.` : ''],
+          recommendations,
         };
       });
 
+    // ── Flaky test details (existing) ──
+    const testSteps = Array.from(stageMap.entries()).filter(([name]) => /test|jest|spec|mocha|pytest|unit|e2e/i.test(name));
+    const flakyTestDetails: FlakyTestDetails = {
+      flakyCount: testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.9).length,
+      flakyPercentage: testSteps.length > 0 ? Math.round((testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.9).length / testSteps.length) * 100) : 0,
+      likelyProblems: testSteps.filter(([_, s]) => s.total > 0 && (s.successes / s.total) < 0.85).map(([n, s]) => `${n} (${Math.round((s.successes/s.total)*100)}% pass rate)`),
+      failingFiles: Array.from(failingFilesSet).slice(0, 15),
+    };
+
+    // ── Avg daily runs ──
+    const firstRun = new Date(runs[runs.length - 1].created_at).getTime();
+    const lastRun = new Date(runs[0].created_at).getTime();
+    const daySpan = Math.max(1, (lastRun - firstRun) / (1000 * 60 * 60 * 24));
+    const avgDailyRuns = runs.length / daySpan;
+
     return {
-      totalRuns: runs.length, avgDurationMinutes: Math.round(avgDuration * 100) / 100,
-      successRate: Math.round(successRate * 10) / 10, flakyRate: Math.round(flakyRate * 10) / 10,
+      totalRuns: runs.length,
+      avgDurationMinutes: Math.round(avgDuration * 100) / 100,
+      successRate: Math.round(successRate * 10) / 10,
+      flakyRate: Math.round(flakyRate * 10) / 10,
       bottleneckStage: { name: bottleneck.name, avgMinutes: bottleneck.avgDurationMinutes, percentage: bottleneck.percentage },
-      stages, buildTimeTrend: trend, trendDirection: trendDir, trendSlope: Math.round(trendSlope * 1000) / 1000,
-      failureHeatmap: heatmap, peakFailureHour: peakHour, peakFailureDay: dayNames[peakDay],
+      stages,
+      buildTimeTrend: trend,
+      trendDirection: trendDir,
+      trendSlope: Math.round(trendSlope * 1000) / 1000,
+      failureHeatmap: heatmap,
+      peakFailureHour: peakHour,
+      peakFailureDay: dayNames[peakDay],
       avgDailyRuns: Math.round(avgDailyRuns * 10) / 10,
       workflowFiles,
       jobLogInsights,
       flakyTestDetails,
+      workflows,
+      jobs,
+      failureBreakdown,
+      concurrency,
+      costEstimate,
+      recovery,
+      branchPerformance,
+      deploymentFrequency,
+      longestRun,
+      shortestRun,
+      timeoutRuns: timeoutCount,
+      cancelledRuns: cancelledCount,
+      successOverTime,
+      failureRuns,
     };
   } catch (e) {
     console.error('CI/CD scan error:', e);
@@ -455,7 +763,12 @@ export async function scanReviews(owner: string, repo: string, token?: string): 
 // MODULE 3: DEPENDENCY RISK SCANNER
 // ═══════════════════════════════════════
 
-const RISKY_LICENSES = ['GPL-2.0', 'GPL-3.0', 'AGPL-3.0', 'AGPL-1.0', 'SSPL-1.0', 'UNLICENSED'];
+const RISKY_LICENSES = [
+  'GPL-2.0', 'GPL-3.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later',
+  'AGPL-3.0', 'AGPL-1.0', 'AGPL-3.0-only', 'AGPL-3.0-or-later',
+  'SSPL-1.0', 'UNLICENSED', 'UNLICENSE', 'UNKNOWN',
+  'GPL 2.0', 'GPL 3.0', 'GNU GPL', 'GNU AGPL', 'AGPL',
+];
 
 async function fetchFileContent(octokit: Octokit, owner: string, repo: string, path: string): Promise<string | null> {
   try {
@@ -486,8 +799,10 @@ function parseRequirementsTxt(content: string): ParsedDep[] {
   return content.split('\n')
     .filter(l => l.trim() && !l.startsWith('#') && !l.startsWith('-'))
     .map(line => {
-      const parts = line.split(/[==|>=|<=|>|<]/);
-      return { name: parts[0].trim(), version: parts[1]?.trim() || 'latest', ecosystem: 'PyPI', isDev: false };
+      const match = line.match(/^([^<>!=~\s]+)\s*([<>!=~\s].*)?$/);
+      const name = match ? match[1].trim() : line.trim();
+      const version = match && match[2] ? match[2].replace(/[<>!=~\s]/g, '').trim() : 'latest';
+      return { name, version, ecosystem: 'PyPI', isDev: false };
     });
 }
 
@@ -508,6 +823,196 @@ function parseGoMod(content: string): ParsedDep[] {
       const parts = line.trim().replace('require ', '').split(/\s+/);
       return { name: parts[0], version: parts[1] || 'latest', ecosystem: 'Go', isDev: false };
     });
+}
+
+function parseCargoToml(content: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+  let inDeps = false;
+  let inDevDeps = false;
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '[dependencies]') { inDeps = true; inDevDeps = false; continue; }
+    if (trimmed === '[dev-dependencies]') { inDevDeps = true; inDeps = false; continue; }
+    if (trimmed.startsWith('[') && trimmed !== '[dependencies]' && trimmed !== '[dev-dependencies]') { inDeps = false; inDevDeps = false; continue; }
+    if ((inDeps || inDevDeps) && trimmed && !trimmed.startsWith('#')) {
+      const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*"?([^"\s]+)"?/);
+      if (match) {
+        deps.push({ name: match[1], version: match[2].replace(/[\^~>=<\s]/g, '') || 'latest', ecosystem: 'crates.io', isDev: inDevDeps });
+      }
+    }
+  }
+  return deps;
+}
+
+function parsePyprojectToml(content: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+  let inDeps = false;
+  let inDevDeps = false;
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '[project.dependencies]') { inDeps = true; inDevDeps = false; continue; }
+    if (trimmed.match(/^\[.*optional.*dependencies/i) || trimmed.match(/^\[.*dev.*dependencies/i)) { inDevDeps = true; inDeps = false; continue; }
+    if (trimmed.startsWith('[') && !trimmed.includes('dependencies')) { inDeps = false; inDevDeps = false; continue; }
+    if ((inDeps || inDevDeps) && trimmed && !trimmed.startsWith('#')) {
+      const match = trimmed.match(/^"?([a-zA-Z0-9_.-]+)\s*([><=!~]+.*)?"?/);
+      if (match) {
+        deps.push({ name: match[1], version: match[2]?.replace(/[><=!~\s]/g, '') || 'latest', ecosystem: 'PyPI', isDev: inDevDeps });
+      }
+    }
+  }
+  return deps;
+}
+
+function parseGemfile(content: string): ParsedDep[] {
+  return content.split('\n')
+    .filter(l => l.trim().match(/^gem\s+'/) || l.trim().match(/^gem\s+"/))
+    .map(line => {
+      const match = line.match(/gem\s+['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/);
+      if (match) {
+        return { name: match[1], version: match[2]?.replace(/[><=~\s]/g, '') || 'latest', ecosystem: 'RubyGems', isDev: false };
+      }
+      return null;
+    })
+    .filter((d): d is ParsedDep => d !== null);
+}
+
+function parsePipfile(content: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+  let inPackages = false;
+  let inDevPackages = false;
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '[packages]') { inPackages = true; inDevPackages = false; continue; }
+    if (trimmed === '[dev-packages]') { inDevPackages = true; inPackages = false; continue; }
+    if (trimmed.startsWith('[') && trimmed !== '[packages]' && trimmed !== '[dev-packages]') { inPackages = false; inDevPackages = false; continue; }
+    if ((inPackages || inDevPackages) && trimmed && !trimmed.startsWith('#')) {
+      const match = trimmed.match(/^([a-zA-Z0-9_.-]+)\s*=\s*"?([^"\s]+)"?/);
+      if (match) {
+        deps.push({ name: match[1], version: match[2].replace(/[><=!~\s*"]/g, '') || 'latest', ecosystem: 'PyPI', isDev: inDevPackages });
+      }
+    }
+  }
+  return deps;
+}
+
+function parseBuildGradle(content: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+  const patterns = [
+    /implementation\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g,
+    /api\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g,
+    /testImplementation\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g,
+    /compile\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g,
+    /runtimeOnly\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      deps.push({
+        name: `${match[1]}:${match[2]}`,
+        version: match[3].replace(/[\^~>=<\s]/g, ''),
+        ecosystem: 'Maven',
+        isDev: pattern.source.includes('test'),
+      });
+    }
+  }
+  return deps;
+}
+
+function parsePomXml(content: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+  const depRegex = /<dependency>[\s\S]*?<groupId>([^<]+)<\/groupId>[\s\S]*?<artifactId>([^<]+)<\/artifactId>[\s\S]*?(?:<version>([^<]*)<\/version>)?[\s\S]*?<\/dependency>/g;
+  let match;
+  while ((match = depRegex.exec(content)) !== null) {
+    const scopeMatch = match[0].match(/<scope>([^<]+)<\/scope>/);
+    deps.push({
+      name: `${match[1]}:${match[2]}`,
+      version: match[3]?.replace(/[\^~>=<\s]/g, '') || 'latest',
+      ecosystem: 'Maven',
+      isDev: scopeMatch?.[1] === 'test',
+    });
+  }
+  return deps;
+}
+
+// ═══════════════════════════════════════
+// MANIFEST DETECTION
+// ═══════════════════════════════════════
+
+const MANIFEST_PARSERS: { file: string; parse: (content: string) => ParsedDep[]; ecosystem: string }[] = [
+  { file: 'package.json', parse: parsePackageJson, ecosystem: 'npm' },
+  { file: 'composer.json', parse: parseComposerJson, ecosystem: 'Packagist' },
+  { file: 'go.mod', parse: parseGoMod, ecosystem: 'Go' },
+  { file: 'requirements.txt', parse: parseRequirementsTxt, ecosystem: 'PyPI' },
+  { file: 'Cargo.toml', parse: parseCargoToml, ecosystem: 'crates.io' },
+  { file: 'pyproject.toml', parse: parsePyprojectToml, ecosystem: 'PyPI' },
+  { file: 'Gemfile', parse: parseGemfile, ecosystem: 'RubyGems' },
+  { file: 'Pipfile', parse: parsePipfile, ecosystem: 'PyPI' },
+  { file: 'build.gradle', parse: parseBuildGradle, ecosystem: 'Maven' },
+  { file: 'build.gradle.kts', parse: parseBuildGradle, ecosystem: 'Maven' },
+  { file: 'pom.xml', parse: parsePomXml, ecosystem: 'Maven' },
+];
+
+const MONOREPO_SUBDIRS = [
+  'app', 'backend', 'server', 'web', 'console', 'frontend', 'client', 'api',
+  'packages', 'services', 'libs', 'modules', 'src', 'core', 'infra', 'projects', 'tools', 'shared'
+];
+
+async function detectManifestFiles(octokit: Octokit, owner: string, repo: string): Promise<{ path: string; parser: typeof MANIFEST_PARSERS[number] }[]> {
+  const detected: { path: string; parser: typeof MANIFEST_PARSERS[number] }[] = [];
+  try {
+    const { data: repoData } = await octokit.repos.get({ owner, repo });
+    let tree: any[] = [];
+    
+    try {
+      const { data: treeData } = await octokit.git.getTree({
+        owner, repo,
+        tree_sha: repoData.default_branch,
+        recursive: '1',
+      });
+      tree = treeData.tree || [];
+    } catch (e) {
+      console.warn('[Scanner] Recursive tree fetch failed, falling back to manual monorepo check:', e);
+      // Fallback: Check root and 2 levels of subdirectories
+      const { data: rootContents } = await octokit.repos.getContent({ owner, repo, path: '' });
+      if (Array.isArray(rootContents)) tree.push(...rootContents);
+      
+      for (const dir of MONOREPO_SUBDIRS) {
+        try {
+          const { data: sub } = await octokit.repos.getContent({ owner, repo, path: dir });
+          if (Array.isArray(sub)) {
+            for (const item of sub) {
+              const itemPath = `${dir}/${item.name}`;
+              tree.push({ ...item, path: itemPath });
+              
+              // If it's a directory, check inside it too (level 2)
+              if (item.type === 'dir') {
+                try {
+                  const { data: subSub } = await octokit.repos.getContent({ owner, repo, path: itemPath });
+                  if (Array.isArray(subSub)) {
+                    tree.push(...subSub.map(ss => ({ ...ss, path: `${itemPath}/${ss.name}` })));
+                  }
+                } catch { /* skip */ }
+              }
+            }
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    for (const item of tree) {
+      if (item.type !== 'blob' && item.type !== 'file') continue;
+      const path = item.path || item.name;
+      if (!path) continue;
+      const fileName = path.split('/').pop() || '';
+      const parser = MANIFEST_PARSERS.find(p => p.file === fileName);
+      if (parser) {
+        detected.push({ path, parser });
+      }
+    }
+  } catch (e) {
+    console.warn('[Scanner] Manifest detection failed entirely:', e);
+  }
+  return detected;
 }
 
 async function queryOSV(packages: ParsedDep[]): Promise<VulnDetail[]> {
@@ -596,47 +1101,194 @@ async function checkNpmFreshness(packages: ParsedDep[]): Promise<FreshnessItem[]
   return results;
 }
 
+async function checkCratesIoFreshness(packages: ParsedDep[]): Promise<FreshnessItem[]> {
+  const cratesPkgs = packages.filter(p => p.ecosystem === 'crates.io' && !p.isDev).slice(0, 30);
+  const results: FreshnessItem[] = [];
+
+  for (const pkg of cratesPkgs) {
+    try {
+      const res = await fetch(`https://crates.io/api/v1/crates/${encodeURIComponent(pkg.name)}`, {
+        headers: { 'User-Agent': 'DevMRI-Scanner' },
+      });
+      if (!res.ok) { results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 }); continue; }
+      const data = await res.json();
+      const latestVersion = data.crate?.max_stable_version || data.crate?.max_version || pkg.version;
+      const license = (data.crate?.max_license || data.versions?.[0]?.license || 'UNKNOWN').split('/')[0].trim();
+
+      const current = (pkg.version || '0.0.0').replace(/[\^~]/g, '').split('.').map(Number);
+      const latest = latestVersion.split('.').map(Number);
+      let majorDrift = latest[0] > (current[0] || 0) ? latest[0] - (current[0] || 0) : 0;
+      let minorDrift = !majorDrift && latest[1] > (current[1] || 0) ? latest[1] - (current[1] || 0) : 0;
+
+      results.push({ package: pkg.name, installed: pkg.version, latest: latestVersion, isOutdated: pkg.version !== latestVersion, license, majorDrift, minorDrift });
+    } catch {
+      results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 });
+    }
+  }
+  return results;
+}
+
+async function checkPyPIFreshness(packages: ParsedDep[]): Promise<FreshnessItem[]> {
+  const pypiPkgs = packages.filter(p => p.ecosystem === 'PyPI' && !p.isDev).slice(0, 30);
+  const results: FreshnessItem[] = [];
+
+  for (const pkg of pypiPkgs) {
+    try {
+      const res = await fetch(`https://pypi.org/pypi/${encodeURIComponent(pkg.name)}/json`);
+      if (!res.ok) { results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 }); continue; }
+      const data = await res.json();
+      const latestVersion = data.info?.version || pkg.version;
+      const license = data.info?.license || 'UNKNOWN';
+
+      const current = (pkg.version || '0.0.0').replace(/[\^~>=<]/g, '').split('.').map(Number);
+      const latest = latestVersion.split('.').map(Number);
+      let majorDrift = latest[0] > (current[0] || 0) ? latest[0] - (current[0] || 0) : 0;
+      let minorDrift = !majorDrift && latest[1] > (current[1] || 0) ? latest[1] - (current[1] || 0) : 0;
+
+      results.push({ package: pkg.name, installed: pkg.version, latest: latestVersion, isOutdated: pkg.version !== latestVersion && pkg.version !== 'latest', license: license || 'UNKNOWN', majorDrift, minorDrift });
+    } catch {
+      results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 });
+    }
+  }
+  return results;
+}
+
+async function checkMavenFreshness(packages: ParsedDep[]): Promise<FreshnessItem[]> {
+  const mavenPkgs = packages.filter(p => p.ecosystem === 'Maven' && !p.isDev).slice(0, 20);
+  const results: FreshnessItem[] = [];
+
+  for (const pkg of mavenPkgs) {
+    try {
+      const [group, artifact] = pkg.name.split(':');
+      if (!group || !artifact) { results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 }); continue; }
+      const res = await fetch(`https://search.maven.org/solrsearch/select?q=g:${encodeURIComponent(group)}+AND+a:${encodeURIComponent(artifact)}&rows=1&wt=json`);
+      if (!res.ok) { results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 }); continue; }
+      const data = await res.json();
+      const latestVersion = data.response?.docs?.[0]?.latestVersion || pkg.version;
+
+      const current = (pkg.version || '0.0.0').replace(/[\^~>=<]/g, '').split('.').map(Number);
+      const latest = latestVersion.split('.').map(Number);
+      let majorDrift = latest[0] > (current[0] || 0) ? latest[0] - (current[0] || 0) : 0;
+      let minorDrift = !majorDrift && latest[1] > (current[1] || 0) ? latest[1] - (current[1] || 0) : 0;
+
+      results.push({ package: pkg.name, installed: pkg.version, latest: latestVersion, isOutdated: pkg.version !== latestVersion, license: 'UNKNOWN', majorDrift, minorDrift });
+    } catch {
+      results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 });
+    }
+  }
+  return results;
+}
+
+async function checkRubyGemsFreshness(packages: ParsedDep[]): Promise<FreshnessItem[]> {
+  const rubyPkgs = packages.filter(p => p.ecosystem === 'RubyGems' && !p.isDev).slice(0, 30);
+  const results: FreshnessItem[] = [];
+
+  for (const pkg of rubyPkgs) {
+    try {
+      const res = await fetch(`https://rubygems.org/api/v1/gems/${encodeURIComponent(pkg.name)}.json`);
+      if (!res.ok) { results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 }); continue; }
+      const data = await res.json();
+      const latestVersion = data.version || pkg.version;
+      const license = (data.licenses?.[0]) || 'UNKNOWN';
+
+      const current = (pkg.version || '0.0.0').replace(/[\^~>=<]/g, '').split('.').map(Number);
+      const latest = latestVersion.split('.').map(Number);
+      let majorDrift = latest[0] > (current[0] || 0) ? latest[0] - (current[0] || 0) : 0;
+      let minorDrift = !majorDrift && latest[1] > (current[1] || 0) ? latest[1] - (current[1] || 0) : 0;
+
+      results.push({ package: pkg.name, installed: pkg.version, latest: latestVersion, isOutdated: pkg.version !== latestVersion, license, majorDrift, minorDrift });
+    } catch {
+      results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 });
+    }
+  }
+  return results;
+}
+
+async function checkPackagistFreshness(packages: ParsedDep[]): Promise<FreshnessItem[]> {
+  const phpPkgs = packages.filter(p => p.ecosystem === 'Packagist' && !p.isDev).slice(0, 30);
+  const results: FreshnessItem[] = [];
+
+  for (const pkg of phpPkgs) {
+    try {
+      const res = await fetch(`https://repo.packagist.org/p2/${pkg.name}.json`);
+      if (!res.ok) { results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 }); continue; }
+      const data = await res.json();
+      const versions = data.packages?.[pkg.name] || [];
+      const latestStable = versions.find((v: any) => !v.version?.includes('dev') && !v.version?.includes('alpha') && !v.version?.includes('beta'));
+      const latestVersion = latestStable?.version?.replace(/^v/, '') || versions[0]?.version?.replace(/^v/, '') || pkg.version;
+      const license = latestStable?.license?.[0] || versions[0]?.license?.[0] || 'UNKNOWN';
+
+      const current = (pkg.version || '0.0.0').replace(/[\^~>=<]/g, '').split('.').map(Number);
+      const latest = latestVersion.split('.').map(Number);
+      let majorDrift = latest[0] > (current[0] || 0) ? latest[0] - (current[0] || 0) : 0;
+      let minorDrift = !majorDrift && latest[1] > (current[1] || 0) ? latest[1] - (current[1] || 0) : 0;
+
+      results.push({ package: pkg.name, installed: pkg.version, latest: latestVersion, isOutdated: pkg.version !== latestVersion, license, majorDrift, minorDrift });
+    } catch {
+      results.push({ package: pkg.name, installed: pkg.version, latest: 'unknown', isOutdated: false, license: 'UNKNOWN', majorDrift: 0, minorDrift: 0 });
+    }
+  }
+  return results;
+}
+
+async function checkFreshnessForEcosystem(ecosystem: string, packages: ParsedDep[]): Promise<FreshnessItem[]> {
+  switch (ecosystem) {
+    case 'npm': return checkNpmFreshness(packages);
+    case 'crates.io': return checkCratesIoFreshness(packages);
+    case 'PyPI': return checkPyPIFreshness(packages);
+    case 'Maven': return checkMavenFreshness(packages);
+    case 'RubyGems': return checkRubyGemsFreshness(packages);
+    case 'Packagist': return checkPackagistFreshness(packages);
+    default: return [];
+  }
+}
+
 export async function scanDependencies(owner: string, repo: string, token?: string): Promise<DependencyResult | null> {
   const octokit = createOctokit(token);
 
   try {
-    // Try package.json first, then requirements.txt
     let allDeps: ParsedDep[] = [];
     let ecosystem = 'npm';
 
-    const pkgContent = await fetchFileContent(octokit, owner, repo, 'package.json');
-    if (pkgContent) {
-      allDeps = parsePackageJson(pkgContent);
-      ecosystem = 'npm';
-    } else {
-      const composerContent = await fetchFileContent(octokit, owner, repo, 'composer.json');
-      if (composerContent) {
-        allDeps = parseComposerJson(composerContent);
-        ecosystem = 'Packagist';
-      } else {
-        const goModContent = await fetchFileContent(octokit, owner, repo, 'go.mod');
-        if (goModContent) {
-          allDeps = parseGoMod(goModContent);
-          ecosystem = 'Go';
-        } else {
-          const reqContent = await fetchFileContent(octokit, owner, repo, 'requirements.txt');
-          if (reqContent) {
-            allDeps = parseRequirementsTxt(reqContent);
-            ecosystem = 'PyPI';
+    // ── Phase 1: Fast-path — check root-level manifests ──
+    for (const { file, parse, ecosystem: eco } of MANIFEST_PARSERS) {
+      const content = await fetchFileContent(octokit, owner, repo, file);
+      if (content) {
+        const parsed = parse(content);
+        if (parsed.length > 0) {
+          allDeps.push(...parsed);
+          ecosystem = eco;
+          // Keep going to find others if any
+        }
+      }
+    }
+
+    // ── Phase 2: Monorepo fallback — check common subdirectories ──
+    for (const dir of MONOREPO_SUBDIRS) {
+      for (const { file, parse, ecosystem: eco } of MANIFEST_PARSERS) {
+        const subContent = await fetchFileContent(octokit, owner, repo, `${dir}/${file}`);
+        if (subContent) {
+          const parsed = parse(subContent);
+          if (parsed.length > 0) {
+            allDeps.push(...parsed);
+            if (allDeps.length === parsed.length) ecosystem = eco; // use first one as primary eco
           }
         }
       }
     }
 
-    // Monorepo fallback: check common subdirs
-    if (allDeps.length === 0) {
-      const subdirs = ['app', 'backend', 'server', 'web', 'console'];
-      for (const dir of subdirs) {
-        const subPkg = await fetchFileContent(octokit, owner, repo, `${dir}/package.json`);
-        if (subPkg) {
-          allDeps = parsePackageJson(subPkg);
-          ecosystem = 'npm';
-          break;
+    // ── Phase 3: Deep scan — use Git Trees API to find manifests anywhere ──
+    const manifestFiles = await detectManifestFiles(octokit, owner, repo);
+    for (const { path, parser } of manifestFiles) {
+      // Avoid double-fetching if already found in Phase 1 or 2
+      if (path.split('/').length <= 2) continue; 
+      
+      const content = await fetchFileContent(octokit, owner, repo, path);
+      if (content) {
+        const parsed = parser.parse(content);
+        if (parsed.length > 0) {
+          allDeps.push(...parsed);
+          if (allDeps.length === parsed.length) ecosystem = parser.ecosystem;
         }
       }
     }
@@ -646,11 +1298,21 @@ export async function scanDependencies(owner: string, repo: string, token?: stri
       return null;
     }
 
-    const deps = allDeps.filter(d => !d.isDev);
-    const devDeps = allDeps.filter(d => d.isDev);
+    // Deduplicate dependencies: take the most recent version if multiple exist
+    const depMap = new Map<string, ParsedDep>();
+    for (const d of allDeps) {
+      const existing = depMap.get(d.name);
+      if (!existing || (d.version !== 'latest' && existing.version === 'latest')) {
+        depMap.set(d.name, d);
+      }
+    }
+    const finalDeps = Array.from(depMap.values());
 
-    // Vulnerability scan
-    const vulnDetails = await queryOSV(allDeps);
+    const deps = finalDeps.filter(d => !d.isDev);
+    const devDeps = finalDeps.filter(d => d.isDev);
+
+    // Vulnerability scan (cap at 200 for broader coverage)
+    const vulnDetails = await queryOSV(finalDeps.slice(0, 200));
     const vulnSummary = { critical: 0, high: 0, medium: 0, low: 0, total: vulnDetails.length };
     vulnDetails.forEach(v => {
       if (v.severity === 'CRITICAL') vulnSummary.critical++;
@@ -659,8 +1321,8 @@ export async function scanDependencies(owner: string, repo: string, token?: stri
       else vulnSummary.low++;
     });
 
-    // Freshness check
-    const freshness = ecosystem === 'npm' ? await checkNpmFreshness(allDeps) : [];
+    // Freshness check (all ecosystems)
+    const freshness = await checkFreshnessForEcosystem(ecosystem, allDeps);
     const outdatedCount = freshness.filter(f => f.isOutdated).length;
     const outdatedPct = freshness.length > 0 ? (outdatedCount / freshness.length) * 100 : 0;
 
@@ -697,20 +1359,29 @@ export async function scanBusFactor(owner: string, repo: string, token?: string)
   try {
     let statsData: any[] = [];
     try {
-      const { data: stats } = await octokit.repos.getContributorsStats({ owner, repo });
+      const statsResponse = await octokit.repos.getContributorsStats({ owner, repo });
+      const stats = statsResponse.data;
+      
       if (Array.isArray(stats) && stats.length > 0) {
         statsData = stats;
       } else {
-        // Fallback: listContributors (immediate data, though less detailed than stats)
-        const { data: contribs } = await octokit.repos.listContributors({ owner, repo, per_page: 50 });
-        if (Array.isArray(contribs) && contribs.length > 0) {
-          statsData = contribs.map(c => ({
-            author: { login: c.login },
-            total: c.contributions || 0
-          }));
-        } else {
-          return null;
+        // Fallback: paginate listContributors to get ALL contributors (up to 3,000)
+        let page = 1;
+        let hasMore = true;
+        while (hasMore && page <= 30) {
+          const { data: contribs } = await octokit.repos.listContributors({ owner, repo, per_page: 100, page });
+          if (Array.isArray(contribs) && contribs.length > 0) {
+            statsData.push(...contribs.map(c => ({
+              author: { login: c.login },
+              total: c.contributions || 0
+            })));
+            hasMore = contribs.length === 100;
+            page++;
+          } else {
+            hasMore = false;
+          }
         }
+        if (statsData.length === 0) return null;
       }
     } catch {
       return null;
@@ -767,7 +1438,7 @@ export async function scanBusFactor(owner: string, repo: string, token?: string)
     return {
       busFactor: count,
       riskLevel: count <= 1 ? 'critical' : count <= 3 ? 'moderate' : 'healthy',
-      topContributors: sorted.slice(0, 8),
+      topContributors: sorted,
       knowledgeSilos: knowledgeSilos.sort((a, b) => b.ownershipPercentage - a.ownershipPercentage),
     };
   } catch {
@@ -1190,18 +1861,40 @@ export async function scanCodeQuality(owner: string, repo: string, token?: strin
     const { data: rootData } = await octokit.repos.getContent({ owner, repo, path: '' });
     const rootFiles = Array.isArray(rootData) ? rootData : [rootData];
     
-    // 2. Try to fetch src files for deep analysis
-    let srcFiles: any[] = [];
+    // 2. Universal File Discovery: Use recursive tree or manual fallback
+    let allTreeFiles: any[] = [];
     try {
-      const { data: sData } = await octokit.repos.getContent({ owner, repo, path: 'src' });
-      srcFiles = Array.isArray(sData) ? sData : [sData];
+      const { data: repoData } = await octokit.repos.get({ owner, repo });
+      const { data: treeData } = await octokit.git.getTree({
+        owner, repo,
+        tree_sha: repoData.default_branch,
+        recursive: '1',
+      });
+      allTreeFiles = treeData.tree || [];
     } catch {
-      srcFiles = []; // No src dir
+      // Fallback: search common source directories manually if tree is too large
+      const searchDirs = ['', 'src', 'app', 'lib', 'packages', 'services', 'components'];
+      for (const dir of searchDirs) {
+        try {
+          const { data: sData } = await octokit.repos.getContent({ owner, repo, path: dir });
+          if (Array.isArray(sData)) {
+            allTreeFiles.push(...sData.map(f => ({ ...f, path: dir ? `${dir}/${f.name}` : f.name })));
+          }
+        } catch { /* skip */ }
+      }
     }
 
-    // Combine for analysis
-    const allFiles = [...rootFiles, ...srcFiles];
-    const sourceFiles = allFiles.filter(f => f.name.match(/\.(ts|js|py|go|tsx|jsx)$/));
+    const sourceFiles = allTreeFiles.filter(item => {
+      const type = item.type || (item.size === undefined ? 'tree' : 'blob');
+      // Handle both Git Tree 'blob' and Content API 'file'
+      if (type !== 'blob' && type !== '100644' && type !== 'file') return false;
+      const path = item.path || item.name || '';
+      const hasExt = /\.(ts|js|py|go|tsx|jsx)$/i.test(path);
+      if (!hasExt) return false;
+      const skipDirs = ['node_modules', 'dist', '.next', '.git', 'vendor', 'venv', 'target', 'build'];
+      const isSkip = skipDirs.some(dir => path.startsWith(dir + '/') || path.includes('/' + dir + '/'));
+      return !isSkip;
+    });
     
     let totalLines = 0;
     let filesOver300 = 0;
@@ -1464,4 +2157,212 @@ export async function scanEnvironmentIntegrity(owner: string, repo: string, toke
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRACK I: BRANCH VASCULAR HEALTH SCANNER
+// Analyzes the "circulatory system" of branches in a repository
+// ═══════════════════════════════════════════════════════════════════════════════
 
+const NAMING_PATTERNS = /^(feature|fix|hotfix|bugfix|release|chore|docs|refactor|test|ci|build|perf|style|revert)\//i;
+
+export async function scanBranchHealth(owner: string, repo: string, defaultBranch: string, token?: string): Promise<BranchHealthResult | null> {
+  const octokit = createOctokit(token);
+
+  try {
+    // 1. Fetch all branches (paginated up to 20 pages / 2000 branches)
+    let allBranches: any[] = [];
+    let branchPage = 1;
+    let hasMoreBranches = true;
+    let protectedCount = 0;
+    
+    while (hasMoreBranches && branchPage <= 20) {
+      try {
+        const { data: pageBranches } = await octokit.repos.listBranches({
+          owner, repo, per_page: 100, page: branchPage,
+        });
+        
+        if (Array.isArray(pageBranches)) {
+          allBranches.push(...pageBranches);
+          protectedCount += pageBranches.filter(b => b.protected).length;
+          hasMoreBranches = pageBranches.length === 100;
+          branchPage++;
+          // Small throttle to avoid secondary rate limits on large scans
+          if (hasMoreBranches) await new Promise(r => setTimeout(r, 150));
+        } else {
+          hasMoreBranches = false;
+        }
+      } catch (e: any) {
+        console.error(`Branch pagination failed at page ${branchPage}:`, e.message);
+        hasMoreBranches = false; // Stop at last successful page
+      }
+    }
+
+    if (allBranches.length === 0) {
+      console.warn('No branches found for:', owner, repo);
+      return null;
+    }
+
+    // 2. Fetch open PRs (paginated up to 500) to check which branches have associated PRs
+    let allOpenPRs: any[] = [];
+    try {
+      let prPage = 1;
+      let hasMorePRs = true;
+      while (hasMorePRs && prPage <= 5) {
+        const { data: pagePRs } = await octokit.pulls.list({
+          owner, repo, state: 'open', per_page: 100, page: prPage,
+        });
+        allOpenPRs.push(...pagePRs);
+        hasMorePRs = pagePRs.length === 100;
+        prPage++;
+      }
+    } catch { /* skip */ }
+    
+    const prBranches = new Set(allOpenPRs.map(pr => pr.head.ref));
+
+    // 3. Analyze each branch (cap at 150 for broader coverage while managing API limits)
+    const branchesToAnalyze = allBranches
+      .filter(b => b.name !== defaultBranch)
+      .slice(0, 150);
+
+    const now = Date.now();
+    const branchDetails: StaleBranch[] = [];
+    const namingDist: Record<string, number> = {};
+    const ageDist = { fresh: 0, healthy: 0, aging: 0, stale: 0, necrotic: 0 };
+    let totalAge = 0;
+    let maxAge = 0;
+    let totalDivergence = 0;
+    let activeBranches = 0;
+    let staleBranches = 0;
+    let orphanedBranches = 0;
+
+    for (const branch of branchesToAnalyze) {
+      try {
+        // Compare branch to default to get ahead/behind + last commit
+        const { data: comparison } = await octokit.repos.compareCommits({
+          owner, repo,
+          base: defaultBranch,
+          head: branch.name,
+        });
+
+        const lastCommitDate = comparison.commits.length > 0
+          ? comparison.commits[comparison.commits.length - 1].commit.committer?.date || ''
+          : '';
+        const lastCommitAuthor = comparison.commits.length > 0
+          ? comparison.commits[comparison.commits.length - 1].commit.author?.name || 'unknown'
+          : 'unknown';
+
+        const daysSinceCommit = lastCommitDate
+          ? Math.floor((now - new Date(lastCommitDate).getTime()) / (1000 * 60 * 60 * 24))
+          : 999;
+
+        const aheadBy = comparison.ahead_by || 0;
+        const behindBy = comparison.behind_by || 0;
+        const hasOpenPR = prBranches.has(branch.name);
+
+        // Classify age
+        if (daysSinceCommit < 7) { ageDist.fresh++; activeBranches++; }
+        else if (daysSinceCommit < 30) { ageDist.healthy++; activeBranches++; }
+        else if (daysSinceCommit < 90) { ageDist.aging++; staleBranches++; }
+        else if (daysSinceCommit < 180) { ageDist.stale++; staleBranches++; }
+        else { ageDist.necrotic++; staleBranches++; }
+
+        // Orphan detection
+        if (!hasOpenPR && daysSinceCommit > 30) orphanedBranches++;
+
+        totalAge += daysSinceCommit;
+        if (daysSinceCommit > maxAge) maxAge = daysSinceCommit;
+        totalDivergence += behindBy;
+
+        // Classify naming convention
+        const namingMatch = branch.name.match(NAMING_PATTERNS);
+        const prefix = namingMatch ? namingMatch[1].toLowerCase() : 'other';
+        namingDist[prefix] = (namingDist[prefix] || 0) + 1;
+
+        // Severity classification
+        let severity: StaleBranch['severity'] = 'low';
+        let recommendation = '';
+
+        if (daysSinceCommit > 180 && !hasOpenPR) {
+          severity = 'critical';
+          recommendation = 'Necrotic vessel — delete this branch immediately. No activity in 6+ months.';
+        } else if (daysSinceCommit > 90 && !hasOpenPR) {
+          severity = 'high';
+          recommendation = 'Stale artery — consider merging or deleting. No activity in 3+ months.';
+        } else if (daysSinceCommit > 30 && behindBy > 50) {
+          severity = 'high';
+          recommendation = `Blood clot risk — ${behindBy} commits behind main. High merge conflict potential.`;
+        } else if (daysSinceCommit > 30) {
+          severity = 'medium';
+          recommendation = 'Aging vessel — review and merge or prune to keep circulation healthy.';
+        } else if (behindBy > 30) {
+          severity = 'medium';
+          recommendation = `Divergence detected — ${behindBy} commits behind. Rebase recommended.`;
+        } else {
+          severity = 'low';
+          recommendation = 'Healthy branch — active and well-maintained.';
+        }
+
+        branchDetails.push({
+          name: branch.name,
+          lastCommitDate: lastCommitDate || 'Unknown',
+          daysSinceCommit,
+          author: lastCommitAuthor,
+          aheadBy,
+          behindBy,
+          hasOpenPR,
+          severity,
+          recommendation,
+        });
+      } catch {
+        // Skip branches we can't compare (e.g., diverged too much)
+      }
+    }
+
+    // 4. Calculate metrics
+    const totalNonDefault = branchesToAnalyze.length || 1;
+    const namingConventionCount = Object.entries(namingDist)
+      .filter(([key]) => key !== 'other')
+      .reduce((sum, [, count]) => sum + count, 0);
+    const namingConventionPct = Math.round((namingConventionCount / totalNonDefault) * 100);
+    const avgBranchAge = Math.round(totalAge / totalNonDefault);
+    const avgDivergence = totalDivergence / totalNonDefault;
+    const mergeConflictRisk = Math.min(100, Math.round(avgDivergence * 1.5));
+    const circulationEfficiency = Math.round((activeBranches / Math.max(1, totalNonDefault)) * 100);
+
+    // 5. Calculate score
+    const staleRate = staleBranches / totalNonDefault;
+    const orphanRate = orphanedBranches / totalNonDefault;
+    const staleScore = Math.max(0, 100 - (staleRate * 200));
+    const orphanScore = Math.max(0, 100 - (orphanRate * 250));
+    const namingScore = namingConventionPct;
+    const divergenceScore = Math.max(0, 100 - mergeConflictRisk);
+    const circulationScore = circulationEfficiency;
+
+    const score = Math.round(
+      (staleScore * 0.30) + (orphanScore * 0.25) + (namingScore * 0.15) +
+      (divergenceScore * 0.15) + (circulationScore * 0.15)
+    );
+
+    return {
+      totalBranches: allBranches.length,
+      activeBranches,
+      staleBranches,
+      orphanedBranches,
+      defaultBranch,
+      protectedBranches: protectedCount,
+      namingConventionPct,
+      avgBranchAge,
+      maxBranchAge: maxAge,
+      mergeConflictRisk,
+      circulationEfficiency,
+      branchDetails: branchDetails
+        .sort((a, b) => b.daysSinceCommit - a.daysSinceCommit)
+        .slice(0, 50),
+      namingDistribution: namingDist,
+      ageDistribution: ageDist,
+      score: Math.max(10, score),
+    };
+  } catch (e) {
+    console.error('Branch health scan error:', e);
+    return null;
+  }
+}

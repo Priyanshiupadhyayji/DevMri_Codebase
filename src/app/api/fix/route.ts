@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { owner, repo, fixType, title, description, filePath, fileContent, baseBranch, token } = body;
 
-    if (!owner || !repo || !title || !filePath || !fileContent) {
+    if (!owner || !repo || !title || !filePath || fileContent === undefined) {
       return Response.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 

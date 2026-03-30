@@ -7,6 +7,7 @@ import { getScoreColor } from '@/lib/scoring';
 import { useSounds } from '@/lib/sounds';
 import { useSurgeonVoice } from '@/lib/speech';
 import { ThemeToggle } from '@/components/ThemeProvider';
+import { useSession } from 'next-auth/react';
 import confetti from 'canvas-confetti';
 
 interface FolderNode {
@@ -33,6 +34,7 @@ const MODULE_CONFIG = [
   { key: 'reviews', label: 'Code Review Radar', icon: '🟡', color: 'var(--warning-amber)' },
   { key: 'heatmap', label: 'Friction Heatmap', icon: '🔥', color: 'var(--warning-orange)' },
   { key: 'deps', label: 'Dependency Scanner', icon: '🟢', color: 'var(--health-green)' },
+  { key: 'branchHealth', label: 'Branch Vascular Health', icon: '🩸', color: 'var(--critical-red)' },
   { key: 'sub', label: 'Sub-Modules Analysis', icon: '🔵', color: 'var(--scan-blue)' },
   { key: 'ai', label: 'AI Diagnosis Engine', icon: '🤖', color: 'var(--purple)' },
 ] as const;
@@ -77,6 +79,14 @@ const CLINICAL_LOGS = {
     '📝 [PRESCRIPTION] Writing surgical prescription for tech-debt removal...',
     '🎬 [VIRTUAL] Simulating recovery outcomes — Prognosis: EXCELLENT.',
     '✨ [FINAL] AI diagnosis finalized. Preparing surgical report.',
+  ],
+  branchHealth: [
+    '🩸 [BIPOSY] Drawing branch vascular samples: Testing for staleness...',
+    '🫀 [RESONANCE] Measuring branch circulation efficiency...',
+    '🔬 [SCAN] Detecting necrotic branch tissue — Stale vessels identified.',
+    '🧪 [PATHOLOGY] Calculating merge conflict risk & divergence velocity...',
+    '📡 [SIGNAL] Synchronizing vascular health with main repository trunk...',
+    '✅ [FLOW] Vascular system analyzed. Branch health profile generated.',
   ],
 };
 
@@ -279,9 +289,11 @@ function MRISliceVisualization({ folders, scanProgress, currentModule }: { folde
 function ScanningContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const repoParam = searchParams.get('repo') || '';
   const vsParam = searchParams.get('vs') || '';
-  const token = searchParams.get('token') || '';
+  // Use OAuth token from session, fallback to URL param
+  const token = (session as any)?.accessToken || searchParams.get('token') || '';
   const [owner, repo] = repoParam.split('/');
   const [vsOwner, vsRepo] = vsParam.split('/');
   const { startMRIHum, stopMRIHum, playScoreChime } = useSounds();
@@ -294,6 +306,7 @@ function ScanningContent() {
     reviews: { percent: 0, status: 'waiting', score: 0, message: '' },
     heatmap: { percent: 0, status: 'waiting', score: 0, message: '' },
     deps: { percent: 0, status: 'waiting', score: 0, message: '' },
+    branchHealth: { percent: 0, status: 'waiting', score: 0, message: '' },
     sub: { percent: 0, status: 'waiting', score: 0, message: '' },
     ai: { percent: 0, status: 'waiting', score: 0, message: '' },
   });

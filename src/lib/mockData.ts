@@ -38,6 +38,38 @@ export const MOCK_SCAN_RESULT: FullScanResult = {
     peakFailureDay: 'Wednesday',
     avgDailyRuns: 15,
     workflowFiles: {},
+    workflows: [
+      { name: 'CI', path: '.github/workflows/ci.yml', totalRuns: 300, successRate: 92, avgDurationMinutes: 12.5, lastRunDate: '2024-03-20', lastConclusion: 'success', triggers: ['push', 'pull_request'] },
+      { name: 'Release', path: '.github/workflows/release.yml', totalRuns: 12, successRate: 100, avgDurationMinutes: 45, lastRunDate: '2024-03-15', lastConclusion: 'success', triggers: ['workflow_dispatch'] }
+    ],
+    jobs: [
+      { name: 'Test (Node 20)', workflowName: 'CI', totalExecutions: 300, successRate: 94, avgDurationMinutes: 8.2, maxDurationMinutes: 12, minDurationMinutes: 7.1, runnerLabel: 'ubuntu-latest', status: 'healthy', steps: [] },
+      { name: 'Lint', workflowName: 'CI', totalExecutions: 300, successRate: 99, avgDurationMinutes: 2.1, maxDurationMinutes: 3, minDurationMinutes: 1.8, runnerLabel: 'ubuntu-latest', status: 'healthy', steps: [] }
+    ],
+    failureBreakdown: [
+      { category: 'test', count: 42, percentage: 70, examples: ['run-101', 'run-105'] },
+      { category: 'lint', count: 12, percentage: 20, examples: ['run-110'] },
+      { category: 'build', count: 6, percentage: 10, examples: ['run-120'] }
+    ],
+    concurrency: { maxParallelJobs: 24, avgParallelJobs: 12, queuedRuns: 0, avgQueueTimeSeconds: 15 },
+    costEstimate: { totalMinutes: 18900, estimatedMonthlyCostUSD: 151.2, topConsumer: 'CI', topConsumerMinutes: 12500 },
+    recovery: { avgRunsToRecovery: 1.2, lastIncidentDate: '2024-03-18', timeToLastRecoveryMinutes: 45, currentStreak: 12 },
+    branchPerformance: [
+      { branch: 'master', runs: 280, successRate: 96, avgDurationMinutes: 12.1 },
+      { branch: 'develop', runs: 150, successRate: 88, avgDurationMinutes: 14.5 }
+    ],
+    deploymentFrequency: { totalDeployments: 45, avgPerDay: 1.5, deploymentSuccessRate: 100, lastDeploymentDate: '2024-03-19T10:00:00Z' },
+    longestRun: { id: 1234, durationMinutes: 58, workflow: 'CI', date: '2024-03-12' },
+    shortestRun: { id: 1235, durationMinutes: 5, workflow: 'CI', date: '2024-03-13' },
+    timeoutRuns: 2,
+    cancelledRuns: 5,
+    successOverTime: [
+      { runNumber: 0, date: '2024-03-10', durationMinutes: 95, conclusion: 'success' },
+      { runNumber: 0, date: '2024-03-11', durationMinutes: 92, conclusion: 'success' }
+    ],
+    failureRuns: [
+      { id: 999, conclusion: 'failure', workflow: 'CI', date: '2024-03-18', durationMinutes: 12, url: 'https://github.com/#' }
+    ]
   },
   reviews: {
     totalPRsAnalyzed: 120,
@@ -191,6 +223,32 @@ export const MOCK_SCAN_RESULT: FullScanResult = {
     ],
     score: 38,
   },
+  branchHealth: {
+    totalBranches: 47,
+    activeBranches: 12,
+    staleBranches: 22,
+    orphanedBranches: 14,
+    defaultBranch: 'master',
+    protectedBranches: 2,
+    namingConventionPct: 38,
+    avgBranchAge: 95,
+    maxBranchAge: 420,
+    mergeConflictRisk: 65,
+    circulationEfficiency: 26,
+    branchDetails: [
+      { name: 'feature/legacy-ops-v2', lastCommitDate: '2025-02-10T00:00:00Z', daysSinceCommit: 420, author: 'legacy-dev', aheadBy: 3, behindBy: 248, hasOpenPR: false, severity: 'critical', recommendation: 'Necrotic vessel — delete this branch immediately. No activity in 6+ months.' },
+      { name: 'experiment/xla-jit-compiler', lastCommitDate: '2025-06-15T00:00:00Z', daysSinceCommit: 288, author: 'compiler-wizard', aheadBy: 18, behindBy: 175, hasOpenPR: false, severity: 'critical', recommendation: 'Necrotic vessel — delete this branch immediately. No activity in 6+ months.' },
+      { name: 'fix/memory-leak-gpu', lastCommitDate: '2025-09-20T00:00:00Z', daysSinceCommit: 191, author: 'gpu-dev', aheadBy: 5, behindBy: 89, hasOpenPR: false, severity: 'critical', recommendation: 'Stale artery — consider merging or deleting.' },
+      { name: 'refactor/eager-mode', lastCommitDate: '2025-11-01T00:00:00Z', daysSinceCommit: 150, author: 'tf-core', aheadBy: 42, behindBy: 120, hasOpenPR: true, severity: 'high', recommendation: 'Blood clot risk — 120 commits behind main.' },
+      { name: 'test/flaky-suite-fix', lastCommitDate: '2026-01-15T00:00:00Z', daysSinceCommit: 74, author: 'test-engineer', aheadBy: 8, behindBy: 45, hasOpenPR: false, severity: 'high', recommendation: 'Stale artery — consider merging or deleting.' },
+      { name: 'docs/api-v3-migration', lastCommitDate: '2026-02-20T00:00:00Z', daysSinceCommit: 38, author: 'doc-writer', aheadBy: 14, behindBy: 22, hasOpenPR: true, severity: 'medium', recommendation: 'Aging vessel — review and merge.' },
+      { name: 'feature/transformer-attention', lastCommitDate: '2026-03-25T00:00:00Z', daysSinceCommit: 5, author: 'ml-researcher', aheadBy: 25, behindBy: 4, hasOpenPR: true, severity: 'low', recommendation: 'Healthy branch — active and well-maintained.' },
+      { name: 'hotfix/security-patch', lastCommitDate: '2026-03-28T00:00:00Z', daysSinceCommit: 2, author: 'sec-team', aheadBy: 2, behindBy: 1, hasOpenPR: true, severity: 'low', recommendation: 'Healthy branch — active and well-maintained.' },
+    ],
+    namingDistribution: { feature: 12, fix: 8, experiment: 5, refactor: 3, test: 2, docs: 2, hotfix: 1, other: 14 },
+    ageDistribution: { fresh: 5, healthy: 7, aging: 10, stale: 12, necrotic: 13 },
+    score: 32,
+  },
   scores: {
     cicd: 35,
     reviews: 42,
@@ -201,6 +259,7 @@ export const MOCK_SCAN_RESULT: FullScanResult = {
     quality: 35,
     flow: 28,
     environment: 38,
+    branchHealth: 32,
   },
   dxScore: 43,
   grade: 'C',

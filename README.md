@@ -171,66 +171,6 @@ Solution 2: Add Docker + lock file → Stable envs (Tracks D+F+H)
 Impact: All 8 tracks improve simultaneously (correlation analysis = +4 bonus)
 ```
 
-### **Technical Execution (20%)**
-- **Deep Log Parsing:** Automated fetching and regex analysis of GitHub Action logs for precise file identification.
-- **Dependency Drift:** Major/minor version delta calculation via NPM registry integration.
-- **Data-Driven Prognosis:** Trend-aware health projections using actual `trendSlope` and `flakyRate` telemetry.
-- **SendGrid Integration:** Professional-grade clinical reporting pipeline for diagnostic dispatch.
-- **Streaming SSE:** Real-time multi-track progress with zero-latency UI updates.
-- **Surgery Theatre:** Automated GitHub forking and PR generation for one-click remediation.
-- **Document Staleness:** Heuristic-based analysis for Track C (Docs Freshness).
-- **Code Complexity:** AST-based cyclomatic complexity heuristics for Track D.
-- **Onboarding Friction:** Multi-signal scoring for Track F.
-- **Reviewer Radar:** Gini-based load analysis for Track G.
-- **Reproducibility:** Environment integrity validation for Track H.
-
-### **User Experience (15%)**
-- Dashboard shows all 8 tracks simultaneously
-- Color-coded severity (CRITICAL/HIGH/MEDIUM/LOW)
-- Before/after comparison showing projected score improvement
-- Specific code examples for each recommendation
-- Cross-track correlation insights
-
----
-
-## 🎓 **How to Win Judges**
-
-### **Live Demo Script (5 minutes)**
-```
-0:00  "Every team has slow builds, flaky tests, stale docs, complex code, bloated deps, poor onboarding, slow reviews, and fragile environments"
-0:30  Demo: Scan facebook/react real data (shows all 8 tracks loading)
-1:00  Show Track A: "Jest is 50% of CI (5m bottleneck) → Parallelize → $2.4k/month"
-1:15  Show Track B: "23% of failures are flaky (not code) → Fix patterns → 80 retries gone"
-1:30  Show Track C: "40% docs stale → Update top pages → Onboarding 3x faster"
-1:45  Show Track D: "Files average 280 LOC (complex) → Split modules → Reviews 40% faster"
-2:00  Show Track E: "847 deps, 5 high vulns → Consolidate → Risk cut 50%"
-2:15  Show Track F: "6-hour onboarding setup → Docker/Makefile → 5-minute setup"
-2:30  Show Track G: "Alice overloaded 40% of reviews → Mentor rotation → Velocity +30%"
-2:45  Show Track H: "3 devs different Node versions → Lock environments → 0 setup failures"
-3:00  Show cross-track: "Fixing CI makes reviews better (correlation). Bad envs cause 30% more issues"
-3:30  Quantify total impact: "$18,700/month in friction costs identified across all 8 tracks."
-4:00  Show before/after: "Score 52 → 88 (A+ grade)"
-4:30  "All recommendations have code examples judges can inspect"
-5:00  "Questions?"
-```
-
----
-
-## 📈 **Demo Data**
-
-**facebook/react**
-- 50 recent CI runs
-- Jest is bottleneck (50% of time)
-- ~3% flaky rate
-- 400+ PRs analyzed
-- 2 critical vulnerabilities
-
-**vercel/next.js**
-- Slower overall (20m avg)
-- Multiple bottlenecks
-- Lower flaky rate (1%)
-- 1000+ PRs
-
 ---
 
 ## 🚀 **Installation & Deployment**
@@ -291,8 +231,55 @@ Required for judges:
 - ✅ **Track F: Developer Flow** with onboarding friction scoring, setup time estimation, toxicity signals
 - ✅ **Track G: Code Review Radar** with reviewer load & PR velocity analysis
 - ✅ **Track H: Environment Integrity** with reproducibility scoring, CI consistency validation, drift detection
+
+---
+
+## 🚀 **Advanced Add-on Features**
+
+Beyond the core 8 tracks, DevMRI includes premium diagnostics for elite engineering teams:
+
+### **🔬 Branch Vascular Health**
+Deep circulatory analysis of your repository's branching architecture.
+- **Vascular Circulation**: Ratio of active vs. total "vessels" (branches).
+- **Pathology Detection**: Identifies **Stale** (no commits 30d+), **Orphaned** (no PRs), and **Necrotic** (forgotten) branches.
+- **Merge Conflict Risk**: Quantifies divergence risk before you even open a PR.
+- **Compliance**: Measures naming convention adherence across the entire fleet.
+
+### **🤖 ML Forecast & Predictive Pathology**
+AI-driven foresight that predicts problems before they materialize.
+- **Drift Prediction**: Estimates **Days Until Grade D** based on current architectural decay.
+- **Attrition Risk**: Identifies "Bus Factor" hotspots where a developer's departure would cause maximum knowledge loss.
+- **Churn Velocity**: Predicts future hotspots based on combined logic complexity and committer density.
+
+### **🖥️ DevMRI Chrome Extension**
+Clinical diagnostics injected directly into your GitHub experience.
+- **Inline Badges**: DX Scores displayed next to repository names and in file lists.
+- **Sidebar Widget**: Real-time score rings and friction cost metrics on every repo page.
+- **Instant X-Ray**: Click the extension icon for a popup diagnostic without leaving GitHub.
+
+### **💊 Surgical PR Remediation (Incision Protocol)**
+DevMRI doesn't just observe; it heals.
+- **Remediation PRs**: One-click generation of corrective Pull Requests for CI bottlenecks and branch rot.
+- **Dependency Injections**: Automated "surgical" updates for major version debt.
+
+---
+
+## ✅ **What's Included**
+
+- ✅ **Track A: CI/CD Scanner** with bottleneck detection & real-time streaming
+- ✅ **Track B: Test Health X-Ray** with ML flaky classification (84% accuracy)
+- ✅ **Track C: Docs Freshness** with staleness detection & onboarding analysis
+- ✅ **Track D: Code Quality Scanner** with AST complexity analysis, God File detection, CI gate validation
+- ✅ **Track E: Dependency X-Ray** with CVE audit & supply chain risk scoring
+- ✅ **Track F: Developer Flow** with onboarding friction scoring, setup time estimation, toxicity signals
+- ✅ **Track G: Code Review Radar** with reviewer load & PR velocity analysis
+- ✅ **Track H: Environment Integrity** with reproducibility scoring, CI consistency validation, drift detection
+- ✅ **🚀 Add-on: Branch Vascular Health** circulatory analysis
+- ✅ **🚀 Add-on: ML Forecast** predictive architectural drift
+- ✅ **🚀 Add-on: Chrome Extension** for inline GitHub diagnostics
+- ✅ **🚀 Add-on: Surgical PRs** for automated workflow healing
 - ✅ **Cross-Track Integration** showing how CI slowness cascades to review delays
-- ✅ **8 diagnostic modules** fully implemented and integrated
+- ✅ **8 core diagnostic modules** fully implemented and integrated
 - ✅ **20+ actionable recommendations** with code examples per track
 - ✅ **Streaming architecture** (real-time multi-track progress)
 - ✅ **Before/after comparison** (score improvement visualization)
@@ -321,6 +308,15 @@ Required for judges:
 - Docker-compose for reproducible environment
 
 **Public Issue Tracker:** github.com/Priyanshiupadhyayji/DEVmri/issues
+
+---
+
+## Demo
+
+Run with `?owner=demo&repo=anything` — no API keys needed.
+
+For a live scan: add `GITHUB_TOKEN` to `.env.local`
+and scan any public repo like `facebook/react`.
 
 ---
 

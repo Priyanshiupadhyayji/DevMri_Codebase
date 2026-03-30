@@ -110,7 +110,7 @@ export default function DashboardPage() {
   const [vsResult, setVsResult] = useState<FullScanResult | null>(null);
   const [showDuel, setShowDuel] = useState(false);
   const [animatedScore, setAnimatedScore] = useState(0);
-  const [activeTab, setActiveTab] = useState<'overview' | 'cicd' | 'reviews' | 'heatmap' | 'deps' | 'necrosis' | 'security' | 'projection' | 'duel' | 'forecast' | 'surgery' | 'badge' | 'timemachine' | 'geneticdrift' | 'history' | 'teamxray' | 'fleet' | 'pathology' | 'autopsy' | 'replay' | 'dna' | 'quality' | 'flow' | 'environment'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'cicd' | 'reviews' | 'heatmap' | 'deps' | 'necrosis' | 'security' | 'projection' | 'duel' | 'forecast' | 'surgery' | 'badge' | 'timemachine' | 'geneticdrift' | 'history' | 'teamxray' | 'fleet' | 'pathology' | 'autopsy' | 'replay' | 'dna' | 'quality' | 'flow' | 'environment' | 'branchHealth'>('overview');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
@@ -145,6 +145,7 @@ export default function DashboardPage() {
   const [teamData, setTeamData] = useState<any>(null);
   const [teamLoading, setTeamLoading] = useState(false);
   const [teamError, setTeamError] = useState('');
+  const [contributorLimit, setContributorLimit] = useState(24);
   const [isPreparingPR, setIsPreparingPR] = useState(false);
   const [prPrepared, setPrPrepared] = useState(false);
 
@@ -602,7 +603,7 @@ export default function DashboardPage() {
 
   if (!result) return null;
 
-  const { dxScore, grade, scores, cicd, reviews, deps, dora, busFactor, heatmap, necrosis, security, commitHygiene, simulation, aiDiagnosis } = result;
+  const { dxScore, grade, scores, cicd, reviews, deps, dora, busFactor, heatmap, necrosis, security, commitHygiene, simulation, aiDiagnosis, branchHealth } = result;
   const scoreColor = getScoreColor(dxScore);
   const gradeColor = getGradeColor(grade);
 
@@ -1142,6 +1143,7 @@ export default function DashboardPage() {
             <TabButtonUI id="quality" label="Code Quality" icon="🏗️" currentTab={activeTab} onTabChange={setActiveTab} />
             <TabButtonUI id="flow" label="Dev Flow" icon="👥" currentTab={activeTab} onTabChange={setActiveTab} />
             <TabButtonUI id="environment" label="Environment" icon="🔒" currentTab={activeTab} onTabChange={setActiveTab} />
+            <TabButtonUI id="branchHealth" label="Branch Health" icon="🩸" currentTab={activeTab} onTabChange={setActiveTab} />
             <TabButtonUI id="security" label="Security" icon="" currentTab={activeTab} onTabChange={setActiveTab} />
             <TabButtonUI id="fleet" label="Team" icon="🏢" currentTab={activeTab} onTabChange={setActiveTab} />
             <TabButtonUI id="forecast" label="ML Forecast" icon="" currentTab={activeTab} onTabChange={setActiveTab} />
@@ -1815,7 +1817,7 @@ export default function DashboardPage() {
                     {busFactor?.topContributors.length || 0} developers own <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>80%</span> of the commits.
                   </p>
                   <div style={{ display: 'flex', gap: 3, height: 14, borderRadius: 8, overflow: 'hidden' }}>
-                    {busFactor?.topContributors.map((c, i) => (
+                    {busFactor?.topContributors.slice(0, 20).map((c, i) => (
                       <div key={i} style={{ 
                         width: `${c.percentage}%`, 
                         background: CHART_COLORS[i % CHART_COLORS.length],
@@ -2101,37 +2103,79 @@ export default function DashboardPage() {
               backdropFilter: 'blur(20px)',
               borderRadius: 24, padding: '32px 40px',
               border: '1px solid var(--nav-border)',
-              display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) 1px 1fr 1px 1fr', gap: 40, alignItems: 'center',
+              display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 24, alignItems: 'center',
               position: 'relative', overflow: 'hidden'
             }}>
-              {/* Scanline overlay */}
               <div style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,229,255,0.01) 2px)', pointerEvents: 'none' }} />
               
               <div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 16 }}>PIPELINE_STABILITY</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-                  <span style={{ fontSize: '3.5rem', fontWeight: 950, color: cicd.successRate > 90 ? 'var(--health-green)' : 'var(--warning-amber)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.successRate}%</span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>SUCCESS RATE</span>
-                </div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 8 }}>SUCCESS_RATE</div>
+                <span style={{ fontSize: '2.8rem', fontWeight: 950, color: cicd.successRate > 90 ? 'var(--health-green)' : cicd.successRate > 70 ? 'var(--warning-amber)' : 'var(--critical-red)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.successRate}%</span>
               </div>
-
-              <div style={{ width: '1px', background: 'var(--nav-border)', height: 60 }}></div>
-
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 16 }}>AVG_EXECUTION_TIME</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, justifyContent: 'center' }}>
-                  <span style={{ fontSize: '3.5rem', fontWeight: 950, color: cicd.avgDurationMinutes > 15 ? 'var(--critical-red)' : 'var(--text-primary)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.avgDurationMinutes}m</span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>VELOCITY</span>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 8 }}>AVG_DURATION</div>
+                <span style={{ fontSize: '2.8rem', fontWeight: 950, color: cicd.avgDurationMinutes > 15 ? 'var(--critical-red)' : 'var(--text-primary)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.avgDurationMinutes}m</span>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 8 }}>TOTAL_RUNS</div>
+                <span style={{ fontSize: '2.8rem', fontWeight: 950, color: 'var(--scan-cyan)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.totalRuns}</span>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 8 }}>FLAKY_RATE</div>
+                <span style={{ fontSize: '2.8rem', fontWeight: 950, color: cicd.flakyRate > 10 ? 'var(--critical-red)' : cicd.flakyRate > 5 ? 'var(--warning-amber)' : 'var(--health-green)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.flakyRate}%</span>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 8 }}>DAILY_RUNS</div>
+                <span style={{ fontSize: '2.8rem', fontWeight: 950, color: 'var(--text-primary)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.avgDailyRuns}</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 8 }}>EST_COST</div>
+                <span style={{ fontSize: '2.8rem', fontWeight: 950, color: 'var(--warning-amber)', letterSpacing: '-0.03em', lineHeight: 1 }}>${cicd.costEstimate?.estimatedMonthlyCostUSD || 0}</span>
+              </div>
+            </div>
+
+            {/* Recovery & Concurrency Stats Row */}
+            <div className="grid-3" style={{ gap: 16 }}>
+              <div className="card" style={{ padding: '24px 28px', background: 'linear-gradient(135deg, rgba(0,230,118,0.04), transparent)', border: '1px solid rgba(0,230,118,0.15)' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 900, marginBottom: 12 }}>RECOVERY_STATUS</div>
+                <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--health-green)', lineHeight: 1 }}>{cicd.recovery?.currentStreak || 0}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: 4 }}>Streak</div>
+                  </div>
+                  <div style={{ width: 1, height: 40, background: 'var(--nav-border)' }} />
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--text-primary)', lineHeight: 1 }}>{cicd.recovery?.avgRunsToRecovery || 1}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: 4 }}>Recovery Runs</div>
+                  </div>
                 </div>
               </div>
-
-              <div style={{ width: '1px', background: 'var(--nav-border)', height: 60 }}></div>
-
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em', fontWeight: 900, marginBottom: 16 }}>ACTIVE_WORKFLOWS</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, justifyContent: 'flex-end' }}>
-                  <span style={{ fontSize: '3.5rem', fontWeight: 950, color: 'var(--scan-cyan)', letterSpacing: '-0.03em', lineHeight: 1 }}>{cicd.stages.length}</span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>NODES SCAN</span>
+              <div className="card" style={{ padding: '24px 28px', background: 'linear-gradient(135deg, rgba(0,229,255,0.04), transparent)', border: '1px solid rgba(0,229,255,0.15)' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 900, marginBottom: 12 }}>CONCURRENCY</div>
+                <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--scan-cyan)', lineHeight: 1 }}>{cicd.concurrency?.maxParallelJobs || 0}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: 4 }}>Max Parallel</div>
+                  </div>
+                  <div style={{ width: 1, height: 40, background: 'var(--nav-border)' }} />
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--text-primary)', lineHeight: 1 }}>{cicd.concurrency?.avgQueueTimeSeconds || 0}s</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: 4 }}>Avg Queue</div>
+                  </div>
+                </div>
+              </div>
+              <div className="card" style={{ padding: '24px 28px', background: 'linear-gradient(135deg, rgba(255,171,0,0.04), transparent)', border: '1px solid rgba(255,171,0,0.15)' }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 900, marginBottom: 12 }}>EXTREMES</div>
+                <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--critical-red)', lineHeight: 1 }}>{cicd.longestRun?.durationMinutes?.toFixed(1) || 0}m</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: 4 }}>Longest</div>
+                  </div>
+                  <div style={{ width: 1, height: 40, background: 'var(--nav-border)' }} />
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--health-green)', lineHeight: 1 }}>{cicd.shortestRun?.durationMinutes?.toFixed(1) || 0}m</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: 4 }}>Shortest</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2240,6 +2284,244 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {/* ═══ Deep Pipeline Analysis — NEW ═══ */}
+
+            {/* Workflows Overview */}
+            {cicd.workflows && cicd.workflows.length > 0 && (
+              <div className="card" style={{ background: 'linear-gradient(180deg, var(--bg-secondary), var(--bg-surface))', border: 'none', boxShadow: '0 12px 48px rgba(0,0,0,0.1)', padding: '32px 40px', borderRadius: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                  <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--scan-cyan)' }} />
+                  <h4 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 950 }}>Workflow Registry</h4>
+                  <span style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, background: 'rgba(0,229,255,0.1)', color: 'var(--scan-cyan)', fontWeight: 900 }}>{cicd.workflows.length} WORKFLOWS</span>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 6px' }}>
+                    <thead>
+                      <tr>
+                        {['WORKFLOW', 'RUNS', 'SUCCESS_RATE', 'AVG_DURATION', 'TRIGGERS', 'LAST_RUN', 'STATUS'].map(h => (
+                          <th key={h} style={{ padding: '0 16px 10px', fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', textAlign: 'left' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cicd.workflows.map((wf, i) => (
+                        <tr key={i} style={{ background: 'var(--bg-primary)', transition: 'all 0.2s ease' }}>
+                          <td style={{ padding: '14px 16px', borderRadius: '10px 0 0 10px', fontWeight: 800, fontSize: '0.9rem', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wf.name}</td>
+                          <td style={{ padding: '14px 16px', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>{wf.totalRuns}</td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 50, height: 5, background: 'var(--bg-surface)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ width: `${wf.successRate}%`, height: '100%', background: wf.successRate > 90 ? 'var(--health-green)' : wf.successRate > 70 ? 'var(--warning-amber)' : 'var(--critical-red)', borderRadius: 3 }} />
+                              </div>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.85rem' }}>{wf.successRate}%</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '14px 16px', fontFamily: 'var(--font-mono)', fontWeight: 900, color: wf.avgDurationMinutes > 15 ? 'var(--critical-red)' : 'var(--scan-cyan)' }}>{wf.avgDurationMinutes}m</td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {wf.triggers.map((t, j) => (
+                                <span key={j} style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: 4, background: 'rgba(0,229,255,0.08)', color: 'var(--scan-cyan)', fontWeight: 700 }}>{t}</span>
+                              ))}
+                              {wf.triggers.length === 0 && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>-</span>}
+                            </div>
+                          </td>
+                          <td style={{ padding: '14px 16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{wf.lastRunDate ? new Date(wf.lastRunDate).toLocaleDateString() : '-'}</td>
+                          <td style={{ padding: '14px 16px', borderRadius: '0 10px 10px 0' }}>
+                            <span style={{ fontSize: '0.6rem', padding: '4px 10px', borderRadius: 6, fontWeight: 900, textTransform: 'uppercase', background: wf.lastConclusion === 'success' ? 'rgba(0,230,118,0.1)' : 'rgba(255,23,68,0.1)', color: wf.lastConclusion === 'success' ? 'var(--health-green)' : 'var(--critical-red)' }}>
+                              {wf.lastConclusion}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Failure Category Breakdown + Branch Performance */}
+            <div className="grid-2" style={{ gap: 24 }}>
+              {cicd.failureBreakdown && cicd.failureBreakdown.length > 0 && (
+                <div className="card" style={{ padding: '28px 32px', background: 'linear-gradient(145deg, rgba(255,23,68,0.03), var(--bg-surface))', border: '1px solid rgba(255,23,68,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--critical-red)' }} />
+                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 950 }}>Failure Etiology</h4>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={cicd.failureBreakdown.map(f => ({ name: f.category.toUpperCase(), value: f.count }))} cx="50%" cy="50%" outerRadius={80} innerRadius={40} dataKey="value"
+                        label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
+                        {cicd.failureBreakdown.map((_, i) => <Cell key={i} fill={['var(--critical-red)', 'var(--warning-amber)', 'var(--warning-orange)', 'var(--scan-cyan)', 'var(--purple)', 'var(--health-green)', 'var(--text-muted)'][i % 7]} />)}
+                      </Pie>
+                      <Tooltip contentStyle={CustomTooltip} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {cicd.branchPerformance && cicd.branchPerformance.length > 0 && (
+                <div className="card" style={{ padding: '28px 32px', background: 'linear-gradient(145deg, rgba(0,229,255,0.03), var(--bg-surface))', border: '1px solid rgba(0,229,255,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--scan-cyan)' }} />
+                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 950 }}>Branch Vitals</h4>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={cicd.branchPerformance.slice(0, 6)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                      <XAxis dataKey="branch" tick={{ fill: 'var(--text-muted)', fontSize: 9 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={CustomTooltip} />
+                      <Bar dataKey="successRate" name="Success %" fill="var(--scan-cyan)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            {/* Job Deep Dive Table */}
+            {cicd.jobs && cicd.jobs.length > 0 && (
+              <div className="card" style={{ background: 'linear-gradient(180deg, var(--bg-secondary), var(--bg-surface))', border: 'none', boxShadow: '0 12px 48px rgba(0,0,0,0.1)', padding: '32px 40px', borderRadius: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--warning-amber)' }} />
+                    <h4 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 950 }}>Job-Level Telemetry</h4>
+                    <span style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, background: 'rgba(255,171,0,0.1)', color: 'var(--warning-amber)', fontWeight: 900 }}>{cicd.jobs.length} JOBS</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {cicd.jobs.slice(0, 12).map((job, i) => (
+                    <div key={i} style={{ background: 'var(--bg-primary)', borderRadius: 14, padding: '20px 24px', border: `1px solid ${job.status === 'bottleneck' ? 'rgba(255,23,68,0.2)' : job.status === 'warning' ? 'rgba(255,171,0,0.15)' : 'rgba(255,255,255,0.04)'}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontWeight: 900, fontSize: '0.95rem' }}>{job.name}</span>
+                          <span style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: 4, background: 'rgba(0,229,255,0.08)', color: 'var(--scan-cyan)', fontWeight: 700 }}>{job.workflowName}</span>
+                          {job.runnerLabel !== 'unknown' && <span style={{ fontSize: '0.6rem', padding: '2px 8px', borderRadius: 4, background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', fontWeight: 700 }}>{job.runnerLabel}</span>}
+                        </div>
+                        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.85rem', color: job.avgDurationMinutes > 10 ? 'var(--critical-red)' : 'var(--scan-cyan)' }}>{job.avgDurationMinutes}m avg</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.85rem', color: job.successRate > 90 ? 'var(--health-green)' : 'var(--warning-amber)' }}>{job.successRate}%</span>
+                          <span style={{ fontSize: '0.55rem', padding: '4px 10px', borderRadius: 6, fontWeight: 950, textTransform: 'uppercase', background: job.status === 'healthy' ? 'rgba(0,230,118,0.1)' : job.status === 'warning' ? 'rgba(255,171,0,0.1)' : 'rgba(255,23,68,0.1)', color: job.status === 'healthy' ? 'var(--health-green)' : job.status === 'warning' ? 'var(--warning-amber)' : 'var(--critical-red)' }}>
+                            {job.status}
+                          </span>
+                        </div>
+                      </div>
+                      {job.steps && job.steps.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {job.steps.slice(0, 8).map((step, j) => (
+                            <div key={j} style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, background: step.status === 'bottleneck' ? 'rgba(255,23,68,0.08)' : 'rgba(255,255,255,0.03)', color: step.status === 'bottleneck' ? 'var(--critical-red)' : 'var(--text-muted)', fontWeight: 700, border: `1px solid ${step.status === 'bottleneck' ? 'rgba(255,23,68,0.15)' : 'transparent'}` }}>
+                              {step.name} <span style={{ opacity: 0.7 }}>({step.avgDurationSeconds}s)</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Failure Runs — Direct Links */}
+            {cicd.failureRuns && cicd.failureRuns.length > 0 && (
+              <div className="card" style={{ background: 'rgba(255,23,68,0.02)', border: '1px solid rgba(255,23,68,0.1)', padding: '28px 36px', borderRadius: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                  <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--critical-red)' }} />
+                  <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 950, color: 'var(--critical-red)' }}>Failed Run Artifacts</h4>
+                  <span style={{ fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, background: 'rgba(255,23,68,0.1)', color: 'var(--critical-red)', fontWeight: 900 }}>{cicd.failureRuns.length} FAILURES</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {cicd.failureRuns.slice(0, 5).map((run, i) => (
+                    <a key={i} href={run.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', background: 'rgba(0,0,0,0.15)', borderRadius: 12, textDecoration: 'none', color: 'inherit', border: '1px solid rgba(255,255,255,0.03)', transition: 'all 0.2s ease' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 900, color: 'var(--critical-red)', fontSize: '0.85rem' }}>#{run.id}</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{run.workflow}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(run.date).toLocaleDateString()}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{run.durationMinutes.toFixed(1)}m</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--scan-cyan)' }}>View &#x2192;</span>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Success Rate Over Time + Deployment Frequency */}
+            <div className="grid-2" style={{ gap: 24 }}>
+              {cicd.successOverTime && cicd.successOverTime.length > 0 && (
+                <div className="card" style={{ padding: '28px 32px', background: 'linear-gradient(145deg, var(--bg-secondary), var(--bg-surface))', border: 'none', boxShadow: '0 8px 32px rgba(0,0,0,0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                    <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--health-green)' }} />
+                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 950 }}>Daily Success Rate</h4>
+                  </div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={cicd.successOverTime}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                      <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 8 }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
+                      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} axisLine={false} tickLine={false} domain={[0, 100]} />
+                      <Tooltip contentStyle={CustomTooltip} />
+                      <Bar dataKey="durationMinutes" name="Success %" radius={[3, 3, 0, 0]}>
+                        {cicd.successOverTime.map((entry, i) => (
+                          <Cell key={i} fill={entry.durationMinutes > 90 ? 'var(--health-green)' : entry.durationMinutes > 70 ? 'var(--warning-amber)' : 'var(--critical-red)'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {cicd.deploymentFrequency && (
+                <div className="card" style={{ padding: '28px 32px', background: 'linear-gradient(145deg, rgba(0,230,118,0.03), var(--bg-surface))', border: '1px solid rgba(0,230,118,0.1)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                    <div style={{ width: 6, height: 24, borderRadius: 3, background: 'var(--health-green)' }} />
+                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 950 }}>Deployment Frequency</h4>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                    <div style={{ textAlign: 'center', padding: '16px', background: 'rgba(0,0,0,0.15)', borderRadius: 12 }}>
+                      <div style={{ fontSize: '2.2rem', fontWeight: 950, color: 'var(--health-green)', lineHeight: 1 }}>{cicd.deploymentFrequency.totalDeployments}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', marginTop: 8 }}>Total Deploys</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '16px', background: 'rgba(0,0,0,0.15)', borderRadius: 12 }}>
+                      <div style={{ fontSize: '2.2rem', fontWeight: 950, color: 'var(--scan-cyan)', lineHeight: 1 }}>{cicd.deploymentFrequency.avgPerDay}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', marginTop: 8 }}>Per Day</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '16px', background: 'rgba(0,0,0,0.15)', borderRadius: 12 }}>
+                      <div style={{ fontSize: '2.2rem', fontWeight: 950, color: cicd.deploymentFrequency.deploymentSuccessRate > 95 ? 'var(--health-green)' : 'var(--warning-amber)', lineHeight: 1 }}>{cicd.deploymentFrequency.deploymentSuccessRate}%</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', marginTop: 8 }}>Deploy Success</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: '16px', background: 'rgba(0,0,0,0.15)', borderRadius: 12 }}>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.4 }}>{cicd.deploymentFrequency.lastDeploymentDate ? new Date(cicd.deploymentFrequency.lastDeploymentDate).toLocaleDateString() : 'N/A'}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', marginTop: 8 }}>Last Deploy</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Timeout & Cancellation Stats */}
+            {(cicd.timeoutRuns > 0 || cicd.cancelledRuns > 0) && (
+              <div style={{ display: 'flex', gap: 16 }}>
+                {cicd.timeoutRuns > 0 && (
+                  <div className="card" style={{ flex: 1, padding: '20px 24px', background: 'rgba(255,171,0,0.04)', border: '1px solid rgba(255,171,0,0.15)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <span style={{ fontSize: '1.6rem' }}>&#x23F1;</span>
+                    <div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 950, color: 'var(--warning-amber)' }}>{cicd.timeoutRuns}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>Timed Out Runs</div>
+                    </div>
+                  </div>
+                )}
+                {cicd.cancelledRuns > 0 && (
+                  <div className="card" style={{ flex: 1, padding: '20px 24px', background: 'rgba(128,128,128,0.04)', border: '1px solid rgba(128,128,128,0.15)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <span style={{ fontSize: '1.6rem' }}>&#x274C;</span>
+                    <div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 950, color: 'var(--text-muted)' }}>{cicd.cancelledRuns}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>Cancelled Runs</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Test Failure Mapping — Track B "Mic Drop" forensics */}
             {cicd.flakyTestDetails?.failingFiles && cicd.flakyTestDetails.failingFiles.length > 0 && (
@@ -2640,7 +2922,7 @@ export default function DashboardPage() {
             icon="📦"
             badge="MISSING_MANIFEST"
             title="Dependency Manifest Not Found"
-            description="The diagnostic scanner could not identify a supported package manager (npm, yarn, pnpm, pip). Sensor cannot perform vulnerability tracking or license risk assessment."
+            description="The diagnostic scanner could not identify a supported dependency manifest (package.json, requirements.txt, Cargo.toml, go.mod, Gemfile, pom.xml, pyproject.toml, Pipfile, composer.json, build.gradle). Sensor cannot perform vulnerability tracking or license risk assessment."
           />
         )}
         {activeTab === 'deps' && deps && (
@@ -3054,8 +3336,8 @@ export default function DashboardPage() {
                               `remove-${file.path.split('/').pop()?.replace('.', '-')}`,
                               `Tissue Sanitization: ${file.path}`,
                               `This tissue (file) has been identified as necrotic (orphaned). Recommended protocol: excision.`,
-                              file.path,
-                              ''
+                                file.path,
+                              `# DEV_MRI_EXCISION_PROTOCOL\n# This file was identified as necrotic tissue (orphaned code).\n# Original Recommendation: ${file.recommendation}\n# Status: Purged`
                             )}
                           >
                             ⚡ PURGE TISSUE
@@ -3767,7 +4049,7 @@ export default function DashboardPage() {
               <div style={{ marginBottom: 24 }}>
                 <h4 style={{ marginBottom: 16 }}>Top Contributors</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-                  {(busFactor?.topContributors || []).map((contributor, idx) => (
+                  {(busFactor?.topContributors || []).slice(0, 20).map((contributor, idx) => (
                     <div key={idx} className="module-card" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ 
                         width: 40, height: 40, borderRadius: '50%', 
@@ -3784,6 +4066,11 @@ export default function DashboardPage() {
                       <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--scan-cyan)' }}>{contributor.percentage}%</div>
                     </div>
                   ))}
+                  {(busFactor?.topContributors?.length || 0) > 20 && (
+                    <div className="module-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>
+                      + {(busFactor?.topContributors?.length || 0) - 20} more contributors
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -3894,13 +4181,13 @@ export default function DashboardPage() {
 
                                     {/* ═══ Contributor Grid — "Meet Our Team" Style ═══ */}
                   <div className="team-grid-container">
-                    <h3 className="team-grid-title">👥 {result?.repo?.fullName?.split('/').pop() || 'Repository'} — Contributors</h3>
+                    <h3 className="team-grid-title">👥 {result?.repo?.fullName?.split('/').pop() || 'Repository'} — Contributors ({teamData.totalContributors})</h3>
                     <p className="team-grid-subtitle">Contributor profiles mapped to codebase domains via git commit history</p>
 
 
                     {/* Contributor Grid */}
                     <div className="team-contributors-grid">
-                      {teamData.contributors.slice(0, 12).map((c: any, cIdx: number) => {
+                      {teamData.contributors.slice(0, contributorLimit).map((c: any, cIdx: number) => {
                         const pastelColors = ['#FFD6E0', '#D4F0FF', '#E8D4FF', '#D4FFE4', '#FFF3D4', '#FFE0D4', '#D4EAFF', '#F0D4FF', '#D4FFF0', '#FFDDD4', '#E0FFD4', '#D4DFFF'];
                         const bgColor = pastelColors[cIdx % pastelColors.length];
                         return (
@@ -3949,8 +4236,36 @@ export default function DashboardPage() {
                         );
                       })}
                     </div>
+
+                    {/* Show More / Show Less Button */}
+                    {teamData.contributors.length > 24 && (
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24, gap: 12 }}>
+                        <button
+                          onClick={() => setContributorLimit(prev => prev >= teamData.contributors.length ? 24 : Math.min(prev + 48, teamData.contributors.length))}
+                          style={{
+                            background: 'linear-gradient(135deg, rgba(0,229,255,0.08), rgba(0,229,255,0.02))',
+                            border: '1px solid rgba(0,229,255,0.2)',
+                            color: 'var(--scan-cyan)',
+                            padding: '12px 32px',
+                            borderRadius: 12,
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            fontFamily: 'var(--font-mono)',
+                            letterSpacing: '0.05em',
+                          }}
+                        >
+                          {contributorLimit >= teamData.contributors.length
+                            ? `▲ Show Less`
+                            : `▼ Show More (${Math.min(teamData.contributors.length - contributorLimit, 48)} more of ${teamData.contributors.length})`
+                          }
+                        </button>
+                      </div>
+                    )}
+
                     <div className="team-footer-stats">
-                      Analyzed {teamData.analyzedCommits} commits · {teamData.totalContributors} contributors detected
+                      Analyzed {teamData.analyzedCommits} commits · {teamData.totalContributors} contributors detected · Showing {Math.min(contributorLimit, teamData.contributors.length)} of {teamData.contributors.length}
                     </div>
                   </div>
                   {/* Legacy list removed in favor of high-fidelity grid above */}
@@ -4880,6 +5195,243 @@ jobs:
         </div>
       )}
       </div>{/* end scan-monitor-overlay */}
+
+        {/* ———————————— TAB: Branch Vascular Health ———————————— */}
+        {activeTab === 'branchHealth' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 0' }}>
+            {/* Hero Banner */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(255,23,68,0.06), rgba(0,229,255,0.04))',
+              border: '1px solid rgba(255,23,68,0.15)',
+              borderRadius: 24,
+              padding: '32px 40px',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{ position: 'absolute', top: 0, right: 0, width: 200, height: '100%', background: 'linear-gradient(90deg, transparent, rgba(255,23,68,0.03))', pointerEvents: 'none' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,23,68,0.1)', border: '1.5px solid rgba(255,23,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>🩸</div>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 950, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>Branch Vascular Health</h2>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '4px 0 0', fontFamily: 'var(--font-mono)' }}>CIRCULATORY_ANALYSIS :: {branchHealth?.totalBranches || 0} VESSELS DETECTED</p>
+                </div>
+              </div>
+
+              {/* Hero Metrics Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
+                {[
+                  { label: 'Total Branches', value: branchHealth?.totalBranches || 0, icon: '🔀', color: 'var(--scan-cyan)' },
+                  { label: 'Active', value: branchHealth?.activeBranches || 0, icon: '💚', color: 'var(--health-green)' },
+                  { label: 'Stale', value: branchHealth?.staleBranches || 0, icon: '⚠️', color: 'var(--warning-amber)' },
+                  { label: 'Orphaned', value: branchHealth?.orphanedBranches || 0, icon: '💀', color: 'var(--critical-red)' },
+                  { label: 'Protected', value: branchHealth?.protectedBranches || 0, icon: '🛡️', color: 'var(--scan-cyan)' },
+                  { label: 'Circulation', value: `${branchHealth?.circulationEfficiency || 0}%`, icon: '🫀', color: (branchHealth?.circulationEfficiency || 0) > 60 ? 'var(--health-green)' : 'var(--critical-red)' },
+                ].map((m, i) => (
+                  <div key={i} style={{
+                    background: 'var(--card-bg)', border: '1px solid var(--border-subtle)', borderRadius: 16,
+                    padding: '16px 18px', position: 'relative', overflow: 'hidden',
+                  }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: `linear-gradient(90deg, ${m.color}, transparent)` }} />
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{m.icon} {m.label}</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 950, color: m.color, fontFamily: 'var(--font-mono)' }}>{m.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid-2">
+              {/* Age Distribution Chart */}
+              <div className="card" style={{ minHeight: 320 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '1.2rem' }}>🧬</span> Vessel Age Distribution
+                  </h3>
+                  <div className="badge badge-medium" style={{ fontSize: '0.6rem' }}>AVG AGE: {branchHealth?.avgBranchAge || 0}d</div>
+                </div>
+
+                {branchHealth?.ageDistribution ? (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={[
+                      { name: 'Fresh (<7d)', count: branchHealth.ageDistribution.fresh, fill: '#00e676' },
+                      { name: 'Healthy (7-30d)', count: branchHealth.ageDistribution.healthy, fill: '#00e5ff' },
+                      { name: 'Aging (30-90d)', count: branchHealth.ageDistribution.aging, fill: '#ffab00' },
+                      { name: 'Stale (90-180d)', count: branchHealth.ageDistribution.stale, fill: '#ff6d00' },
+                      { name: 'Necrotic (180d+)', count: branchHealth.ageDistribution.necrotic, fill: '#ff1744' },
+                    ]}>
+                      <XAxis dataKey="name" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={CustomTooltip} />
+                      <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                        {[
+                          { fill: '#00e676' },
+                          { fill: '#00e5ff' },
+                          { fill: '#ffab00' },
+                          { fill: '#ff6d00' },
+                          { fill: '#ff1744' },
+                        ].map((entry, i) => (
+                          <Cell key={`cell-${i}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyClinicalState icon="🩸" title="No Branch Data" description="Branch vascular analysis requires repository access." />
+                )}
+              </div>
+
+              {/* Naming Convention Donut */}
+              <div className="card" style={{ minHeight: 320 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '1.2rem' }}>🏷️</span> Naming Convention
+                  </h3>
+                  <div className={`badge ${(branchHealth?.namingConventionPct || 0) > 60 ? 'badge-success' : 'badge-high'}`} style={{ fontSize: '0.6rem' }}>{branchHealth?.namingConventionPct || 0}% COMPLIANT</div>
+                </div>
+
+                {branchHealth?.namingDistribution ? (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie
+                        data={Object.entries(branchHealth.namingDistribution).map(([name, value]) => ({ name, value }))}
+                        cx="50%" cy="50%" innerRadius={55} outerRadius={85}
+                        paddingAngle={3} dataKey="value"
+                      >
+                        {Object.entries(branchHealth.namingDistribution).map((_, i) => (
+                          <Cell key={`cell-${i}`} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={CustomTooltip} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyClinicalState icon="🏷️" title="No Naming Data" description="Naming convention analysis is unavailable." />
+                )}
+
+                {branchHealth?.namingDistribution && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12, justifyContent: 'center' }}>
+                    {Object.entries(branchHealth.namingDistribution).slice(0, 6).map(([name, count], i) => (
+                      <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                        {name}: {count}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Merge Conflict Risk & Circulation Score */}
+            <div className="grid-2">
+              <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, width: `${branchHealth?.mergeConflictRisk || 0}%`, height: 4, background: `linear-gradient(90deg, var(--warning-amber), var(--critical-red))`, borderRadius: '0 4px 4px 0' }} />
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '1.2rem' }}>🩹</span> Merge Conflict Risk
+                </h3>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 16 }}>
+                  <div style={{ fontSize: '3rem', fontWeight: 950, color: (branchHealth?.mergeConflictRisk || 0) > 60 ? 'var(--critical-red)' : (branchHealth?.mergeConflictRisk || 0) > 30 ? 'var(--warning-amber)' : 'var(--health-green)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>{branchHealth?.mergeConflictRisk || 0}</div>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>/ 100 RISK</span>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Based on average branch divergence from <code style={{ color: 'var(--scan-cyan)', background: 'rgba(0,229,255,0.08)', padding: '2px 6px', borderRadius: 4 }}>{branchHealth?.defaultBranch || 'main'}</code>. High divergence increases merge conflict probability.
+                </p>
+              </div>
+
+              <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, width: `${branchHealth?.circulationEfficiency || 0}%`, height: 4, background: `linear-gradient(90deg, var(--scan-cyan), var(--health-green))`, borderRadius: '0 4px 4px 0' }} />
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '1.2rem' }}>🫀</span> Vascular Circulation Score
+                </h3>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                  <div style={{ fontSize: '3rem', fontWeight: 950, color: (branchHealth?.circulationEfficiency || 0) > 60 ? 'var(--health-green)' : (branchHealth?.circulationEfficiency || 0) > 30 ? 'var(--warning-amber)' : 'var(--critical-red)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>{branchHealth?.circulationEfficiency || 0}%</div>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700 }}>ACTIVE / TOTAL</span>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Ratio of actively-developed branches vs total. Low circulation indicates accumulated "dead tissue" in the repository.
+                </p>
+              </div>
+            </div>
+
+            {/* Divergence Risk Table */}
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '1.2rem' }}>🔬</span> Branch Pathology Report
+                </h3>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  MAX AGE: {branchHealth?.maxBranchAge || 0} DAYS
+                </div>
+              </div>
+
+              {branchHealth?.branchDetails && branchHealth.branchDetails.length > 0 ? (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 4px' }}>
+                    <thead>
+                      <tr style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'var(--font-mono)' }}>
+                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 700 }}>Branch</th>
+                        <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 700 }}>Severity</th>
+                        <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 700 }}>Age</th>
+                        <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 700 }}>Behind</th>
+                        <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 700 }}>PR</th>
+                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 700 }}>Diagnosis</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {branchHealth.branchDetails.map((b, i) => (
+                        <tr key={i} style={{
+                          background: b.severity === 'critical' ? 'rgba(255,23,68,0.06)' :
+                            b.severity === 'high' ? 'rgba(255,109,0,0.04)' :
+                            b.severity === 'medium' ? 'rgba(255,171,0,0.03)' : 'rgba(0,230,118,0.02)',
+                          borderRadius: 8, transition: 'all 0.2s ease',
+                        }}>
+                          <td style={{ padding: '12px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</td>
+                          <td style={{ textAlign: 'center', padding: '12px' }}>
+                            <span className={`badge ${sev(b.severity.toUpperCase())}`} style={{ fontSize: '0.6rem', textTransform: 'uppercase' }}>{b.severity}</span>
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '12px', fontSize: '0.8rem', fontWeight: 700, color: b.daysSinceCommit > 90 ? 'var(--critical-red)' : 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{b.daysSinceCommit}d</td>
+                          <td style={{ textAlign: 'center', padding: '12px', fontSize: '0.8rem', fontWeight: 700, color: b.behindBy > 50 ? 'var(--warning-orange)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{b.behindBy}</td>
+                          <td style={{ textAlign: 'center', padding: '12px' }}>
+                            <span style={{ fontSize: '0.9rem' }}>{b.hasOpenPR ? '✅' : '❌'}</span>
+                          </td>
+                          <td style={{ padding: '12px', fontSize: '0.72rem', color: 'var(--text-secondary)', maxWidth: 300, lineHeight: 1.4 }}>{b.recommendation}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyClinicalState
+                  icon="🩸"
+                  title="No Branch Data Available"
+                  description="Branch vascular analysis requires repository access. Sign in with GitHub to scan private repositories."
+                />
+              )}
+            </div>
+
+            {/* Overall Health Score */}
+            <div className="card" style={{ background: 'linear-gradient(135deg, var(--card-bg), rgba(0,229,255,0.02))', border: '1px solid rgba(0,229,255,0.1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '1.2rem' }}>📊</span> Branch Health Score
+                  </h3>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', maxWidth: 500 }}>
+                    Composite score based on stale rate (30%), orphan rate (25%), naming convention (15%), divergence risk (15%), and circulation efficiency (15%).
+                  </p>
+                </div>
+                <div style={{
+                  width: 90, height: 90, borderRadius: '50%',
+                  background: `conic-gradient(${getScoreColor(branchHealth?.score || 0)} ${(branchHealth?.score || 0) * 3.6}deg, rgba(255,255,255,0.05) 0deg)`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: `0 0 30px ${getScoreColor(branchHealth?.score || 0)}33`,
+                }}>
+                  <div style={{ width: 70, height: 70, borderRadius: '50%', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: '1.4rem', fontWeight: 950, color: getScoreColor(branchHealth?.score || 0), fontFamily: 'var(--font-mono)' }}>{branchHealth?.score || 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {/* ———————————— Cinematic Autopsy Replay ———————————— */}
         {showAutopsy && autopsyData && (
           <AutopsyReplay 
@@ -4923,6 +5475,7 @@ const TabButtonUI = ({ id, label, icon, currentTab, onTabChange }: { id: string;
       case 'projection': return '📽️';
       case 'badge': return '🏅';
       case 'duel': return '⚔️';
+      case 'branchHealth': return '🩸';
       default: return '💠';
     }
   };

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
-import { getRepoMetadata, scanCICD, scanReviews, scanDependencies, scanBusFactor, scanSecurity, scanCommitHygiene, scanFrictionHeatmap, scanNecrosis, scanCodeQuality, scanDeveloperFlow, scanEnvironmentIntegrity } from '@/lib/scanner';
-import { calculateCICDScore, calculateReviewScore, calculateDepScore, calculateSecurityScore, calculateCommitHygieneScore, calculateBusFactorScore, calculateDXScore, calculateDORA, calculateFrictionCost, detectCorrelations, simulateFixes, calculateQualityScore, calculateFlowScore, calculateEnvironmentScore } from '@/lib/scoring';
+import { getRepoMetadata, scanCICD, scanReviews, scanDependencies, scanBusFactor, scanSecurity, scanCommitHygiene, scanFrictionHeatmap, scanNecrosis, scanCodeQuality, scanDeveloperFlow, scanEnvironmentIntegrity, scanBranchHealth } from '@/lib/scanner';
+import { calculateCICDScore, calculateReviewScore, calculateDepScore, calculateSecurityScore, calculateCommitHygieneScore, calculateBusFactorScore, calculateDXScore, calculateDORA, calculateFrictionCost, detectCorrelations, simulateFixes, calculateQualityScore, calculateFlowScore, calculateEnvironmentScore, calculateBranchHealthScore } from '@/lib/scoring';
 import { generateDiagnosis, generatePathology } from '@/lib/ai';
 import { FullScanResult, MLForecast, PredictivePathology } from '@/lib/types';
 import { MOCK_SCAN_RESULT } from '@/lib/mockData';
@@ -47,9 +47,9 @@ async function callMLForecast(runs: any[]): Promise<any | null> {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const owner = searchParams.get('owner');
-  const repo = searchParams.get('repo');
-  const token = searchParams.get('token') || undefined;
+  const owner = searchParams.get('owner')?.trim();
+  const repo = searchParams.get('repo')?.trim();
+  const token = searchParams.get('token')?.trim() || undefined;
 
   if (!owner || !repo) {
     return new Response('Missing owner or repo', { status: 400 });
@@ -136,8 +136,14 @@ export async function GET(req: NextRequest) {
         const environmentScore = environment ? calculateEnvironmentScore(environment) : 50;
         send('module_complete', { module: 'environment', score: environmentScore, message: environment ? `Reproducibility: ${environment.reproducibilityScore}%` : 'Env scan skipped' });
 
-        // 10. Sub-modules
-        send('progress', { module: 'sub', status: 'scanning', percent: 85, message: 'Running sub-module analysis...' });
+        // 10. Branch Vascular Health
+        send('progress', { module: 'branchHealth', status: 'scanning', percent: 84, message: 'Scanning branch vascular health...' });
+        const branchHealth = await scanBranchHealth(owner, repo, repoMeta.defaultBranch, token);
+        const branchHealthScore = branchHealth ? calculateBranchHealthScore(branchHealth) : 50;
+        send('module_complete', { module: 'branchHealth', score: branchHealthScore, message: branchHealth ? `${branchHealth.totalBranches} branches, ${branchHealth.staleBranches} stale, ${branchHealth.circulationEfficiency}% circulation` : 'Branch scan skipped' });
+
+        // 11. Sub-modules
+        send('progress', { module: 'sub', status: 'scanning', percent: 87, message: 'Running sub-module analysis...' });
 
         const [busFactor, security, commitHygiene] = await Promise.all([
           scanBusFactor(owner, repo, token),
@@ -164,6 +170,7 @@ export async function GET(req: NextRequest) {
           quality: qualityScore,
           flow: flowScore,
           environment: environmentScore,
+          branchHealth: branchHealthScore,
         };
         const { score: dxScore, grade, percentile } = calculateDXScore(scores);
 
@@ -179,7 +186,7 @@ export async function GET(req: NextRequest) {
         // Build partial result for simulation
         const partialResult: FullScanResult = {
           repo: repoMeta, cicd, reviews, deps, dora, busFactor, heatmap, necrosis, security, commitHygiene,
-          quality, flow, environment,
+          quality, flow, environment, branchHealth,
           scores, dxScore, grade, percentile, frictionCost, correlations,
           simulation: [], aiDiagnosis: null, mlForecast: null, predictivePathology: null, flakyRate: 0, mlSource: 'js_fallback' as const,
           scanDuration: (Date.now() - startTime) / 1000,

@@ -131,12 +131,18 @@ export async function GET(request: NextRequest) {
   const octokit = new Octokit({ auth: token || undefined });
 
   try {
-    // ─── 1. Get recent commits with file lists ───
-    const { data: commits } = await octokit.repos.listCommits({
-      owner,
-      repo: repoName,
-      per_page: 100,
-    });
+    // ─── 1. Get recent commits with file lists (paginate up to 500) ───
+    let allCommits: any[] = [];
+    for (let page = 1; page <= 5; page++) {
+      const { data: pageCommits } = await octokit.repos.listCommits({
+        owner,
+        repo: repoName,
+        per_page: 100,
+        page,
+      });
+      allCommits.push(...pageCommits);
+      if (pageCommits.length < 100) break; // no more pages
+    }
 
     // Map: contributor → { domain → commit count }
     const contributorMap: Record<string, {
@@ -149,10 +155,8 @@ export async function GET(request: NextRequest) {
       hourlyActivity: number[]; // 0-23
     }> = {};
 
-    // ─── 2. Analyze each commit's files ───
-    const commitSample = commits.slice(0, 60); // Limit API calls
-    
-    for (const commit of commitSample) {
+    // ─── 2. First pass: Count ALL contributors from ALL fetched commits ───
+    for (const commit of allCommits) {
       const login = commit.author?.login || commit.commit.author?.name || 'unknown';
       const avatar = commit.author?.avatar_url || '';
       const date = commit.commit.author?.date || '';
@@ -177,8 +181,13 @@ export async function GET(request: NextRequest) {
       if (date > contributorMap[login].recentDate) {
         contributorMap[login].recentDate = date;
       }
+    }
 
-      // Get files changed in this commit
+    // ─── 3. Second pass: Fetch file details for a sample to classify domains ───
+    const commitSample = allCommits.slice(0, 80);
+    for (const commit of commitSample) {
+      const login = commit.author?.login || commit.commit.author?.name || 'unknown';
+
       try {
         const { data: detail } = await octokit.repos.getCommit({
           owner,
@@ -204,7 +213,7 @@ export async function GET(request: NextRequest) {
 
     // ─── 3. Build contributor profiles ───
     const contributors = Object.values(contributorMap)
-      .filter(c => c.totalCommits >= 2)
+      .filter(c => c.totalCommits >= 1)
       .map(c => {
         const totalFileTouches = Object.values(c.domains).reduce((a, b) => a + b, 0);
         
@@ -313,11 +322,57 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ─── 6. Fetch ALL contributors via listContributors to capture ones outside commit window ───
+    let allGitHubContributors: any[] = [];
+    try {
+      for (let page = 1; page <= 5; page++) {
+        const { data: ghContribs } = await octokit.repos.listContributors({
+          owner,
+          repo: repoName,
+          per_page: 100,
+          page,
+        });
+        if (Array.isArray(ghContribs) && ghContribs.length > 0) {
+          allGitHubContributors.push(...ghContribs);
+          if (ghContribs.length < 100) break;
+        } else {
+          break;
+        }
+      }
+    } catch { /* Proceed with what we have from commits */ }
+
+    // Merge: add contributors from listContributors that we missed in commits
+    const existingLogins = new Set(contributors.map(c => c.login));
+    const extraContributors = allGitHubContributors
+      .filter(c => c.login && !existingLogins.has(c.login))
+      .map(c => ({
+        login: c.login,
+        avatar: c.avatar_url || '',
+        totalCommits: c.contributions || 0,
+        primaryDomain: 'Unknown',
+        primaryIcon: '❓',
+        primaryColor: '#8899aa',
+        role: 'Contributor',
+        activityStatus: 'Unknown' as const,
+        daysSinceActive: -1,
+        lastActive: '',
+        domainBreakdown: [],
+        topFiles: [],
+        hourlyActivity: new Array(24).fill(0),
+        burnoutRisk: 'low' as const,
+        knowledgeCoverage: 0,
+        uniquelyOwnedCount: 0,
+        economicImpact: Math.round((c.contributions || 0) * 450),
+      }));
+
+    const allContributors = [...contributors, ...extraContributors];
+    const actualTotalContributors = Math.max(allContributors.length, allGitHubContributors.length);
+
     return NextResponse.json({
       repo,
       analyzedCommits: commitSample.length,
-      totalContributors: contributors.length,
-      contributors,
+      totalContributors: actualTotalContributors,
+      contributors: allContributors,
       domainSummary,
       risks,
       domains: DOMAINS.map(d => ({ name: d.name, icon: d.icon, color: d.color })),

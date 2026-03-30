@@ -2,7 +2,8 @@ import {
   CICDResult, ReviewResult, DependencyResult, ModuleScores, Grade,
   FrictionCostBreakdown, DORAMetrics, DORAClass,
   SecurityPosture, CommitHygieneResult, CorrelationInsight, SimulationResult,
-  FullScanResult, CodeQualityResult, DeveloperFlowResult, EnvironmentIntegrityResult
+  FullScanResult, CodeQualityResult, DeveloperFlowResult, EnvironmentIntegrityResult,
+  BranchHealthResult
 } from './types';
 import benchmarkData from './benchmark.json';
 
@@ -125,6 +126,10 @@ export function calculateEnvironmentScore(data: EnvironmentIntegrityResult): num
   return data.score; // Already pre-calculated in scanner logic
 }
 
+export function calculateBranchHealthScore(data: BranchHealthResult): number {
+  return data.score; // Already pre-calculated in scanner logic
+}
+
 // ═══════════════════════════════════════
 // DX SCORE
 // ═══════════════════════════════════════
@@ -136,7 +141,7 @@ export function calculateDXScore(
 ): { score: number; grade: Grade; percentile: number } {
   const docScore = calculateDocStalenessScore(docStalenessFactor);
   
-  // Rebalanced weights for 8 tracks (plus docs)
+  // Rebalanced weights for 9 tracks (plus docs)
   const w = weights ? {
     cicd: weights.cicd / 100,
     reviews: weights.reviews / 100,
@@ -146,13 +151,14 @@ export function calculateDXScore(
     flow: weights.flow / 100,
     env: weights.env / 100,
   } : {
-    cicd: 0.15,
-    reviews: 0.15,
-    deps: 0.15,
-    docs: 0.10,
-    quality: 0.15,
-    flow: 0.15,
-    env: 0.15,
+    cicd: 0.14,
+    reviews: 0.14,
+    deps: 0.13,
+    docs: 0.08,
+    quality: 0.13,
+    flow: 0.13,
+    env: 0.13,
+    branchHealth: 0.12,
   };
 
   const score = Math.round(
@@ -162,7 +168,8 @@ export function calculateDXScore(
     (docScore * w.docs) +
     (scores.quality * w.quality) +
     (scores.flow * w.flow) +
-    (scores.environment * w.env)
+    (scores.environment * w.env) +
+    ((scores.branchHealth || 50) * ((w as any).branchHealth || 0.12))
   );
   
   const grade: Grade = score >= 80 ? 'A' : score >= 60 ? 'B' :

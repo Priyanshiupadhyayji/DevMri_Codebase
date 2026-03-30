@@ -40,6 +40,80 @@ export interface FlakyTestDetails {
   failingFiles: string[];
 }
 
+export interface WorkflowSummary {
+  name: string;
+  path: string;
+  totalRuns: number;
+  successRate: number;
+  avgDurationMinutes: number;
+  lastRunDate: string;
+  lastConclusion: string;
+  triggers: string[]; // push, pull_request, schedule, etc.
+}
+
+export interface JobDetail {
+  name: string;
+  workflowName: string;
+  totalExecutions: number;
+  successRate: number;
+  avgDurationMinutes: number;
+  maxDurationMinutes: number;
+  minDurationMinutes: number;
+  runnerLabel: string;
+  status: 'healthy' | 'warning' | 'bottleneck';
+  steps: StepDetail[];
+}
+
+export interface StepDetail {
+  name: string;
+  avgDurationSeconds: number;
+  maxDurationSeconds: number;
+  failureRate: number;
+  status: 'healthy' | 'warning' | 'bottleneck';
+}
+
+export interface FailureCategory {
+  category: 'test' | 'lint' | 'build' | 'deploy' | 'timeout' | 'infra' | 'unknown';
+  count: number;
+  percentage: number;
+  examples: string[]; // run IDs or error snippets
+}
+
+export interface ConcurrencyMetric {
+  maxParallelJobs: number;
+  avgParallelJobs: number;
+  queuedRuns: number;
+  avgQueueTimeSeconds: number;
+}
+
+export interface CostEstimate {
+  totalMinutes: number;
+  estimatedMonthlyCostUSD: number;
+  topConsumer: string; // workflow or job name
+  topConsumerMinutes: number;
+}
+
+export interface RecoveryMetric {
+  avgRunsToRecovery: number;
+  lastIncidentDate: string | null;
+  timeToLastRecoveryMinutes: number | null;
+  currentStreak: number; // consecutive successes
+}
+
+export interface BranchPerformance {
+  branch: string;
+  runs: number;
+  successRate: number;
+  avgDurationMinutes: number;
+}
+
+export interface DeploymentFrequency {
+  totalDeployments: number;
+  avgPerDay: number;
+  deploymentSuccessRate: number;
+  lastDeploymentDate: string | null;
+}
+
 export interface CICDResult {
   totalRuns: number;
   avgDurationMinutes: number;
@@ -69,10 +143,26 @@ export interface CICDResult {
       description: string;
       estimatedSavings: number;
       difficulty: 'easy' | 'medium' | 'hard';
-      example: string;
+      example?: string;
     }>;
   }>;
   flakyTestDetails?: FlakyTestDetails;
+
+  // Deep pipeline analysis
+  workflows: WorkflowSummary[];
+  jobs: JobDetail[];
+  failureBreakdown: FailureCategory[];
+  concurrency: ConcurrencyMetric;
+  costEstimate: CostEstimate;
+  recovery: RecoveryMetric;
+  branchPerformance: BranchPerformance[];
+  deploymentFrequency: DeploymentFrequency | null;
+  longestRun: { id: number; durationMinutes: number; workflow: string; date: string } | null;
+  shortestRun: { id: number; durationMinutes: number; workflow: string; date: string } | null;
+  timeoutRuns: number;
+  cancelledRuns: number;
+  successOverTime: TrendPoint[]; // success rate per day
+  failureRuns: Array<{ id: number; conclusion: string; workflow: string; date: string; durationMinutes: number; url: string }>;
 }
 
 // ═══════════════ CODE REVIEW ═══════════════
@@ -285,6 +375,7 @@ export interface ModuleScores {
   quality: number;    // Track D
   flow: number;       // Track F
   environment: number; // Track H
+  branchHealth: number; // Track I
 }
 
 export type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
@@ -405,6 +496,44 @@ export interface NecrosisScan {
   impactDescription: string;
 }
 
+// ═══════════════ BRANCH VASCULAR HEALTH ═══════════════
+
+export interface StaleBranch {
+  name: string;
+  lastCommitDate: string;
+  daysSinceCommit: number;
+  author: string;
+  aheadBy: number;
+  behindBy: number;
+  hasOpenPR: boolean;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  recommendation: string;
+}
+
+export interface BranchHealthResult {
+  totalBranches: number;
+  activeBranches: number;          // commit in last 14 days
+  staleBranches: number;           // no commit in 30+ days
+  orphanedBranches: number;        // no PR, no recent commits
+  defaultBranch: string;
+  protectedBranches: number;
+  namingConventionPct: number;     // % following feature/fix/hotfix/release
+  avgBranchAge: number;            // days
+  maxBranchAge: number;            // days
+  mergeConflictRisk: number;       // 0-100
+  circulationEfficiency: number;   // active / total ratio (0-100)
+  branchDetails: StaleBranch[];
+  namingDistribution: Record<string, number>;
+  ageDistribution: {
+    fresh: number;     // < 7 days
+    healthy: number;   // 7-30 days
+    aging: number;     // 30-90 days
+    stale: number;     // 90-180 days
+    necrotic: number;  // > 180 days
+  };
+  score: number;
+}
+
 // ═══════════════ FULL SCAN RESULT ═══════════════
 
 export interface FullScanResult {
@@ -421,6 +550,7 @@ export interface FullScanResult {
   quality: CodeQualityResult | null;     // Track D
   flow: DeveloperFlowResult | null;      // Track F
   environment: EnvironmentIntegrityResult | null; // Track H
+  branchHealth: BranchHealthResult | null; // Track I
   scores: ModuleScores;
   dxScore: number;
   grade: Grade;
