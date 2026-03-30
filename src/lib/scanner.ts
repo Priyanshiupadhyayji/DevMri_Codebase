@@ -344,19 +344,19 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
     const bottleneck = stages[0] || { name: 'Unknown', avgMinutes: 0, percentage: 0 };
 
     // ── Build job details list ──
-    const jobs: JobDetail[] = Array.from(jobMap.entries()).map(([key, data]) => {
+    const jobs: JobDetail[] = Array.from(jobMap.entries()).map(([key, data]): JobDetail => {
       const avg = data.durations.length > 0 ? data.durations.reduce((a, b) => a + b, 0) / data.durations.length : 0;
-      const steps: StepDetail[] = Array.from(data.steps.entries()).map(([sName, sData]) => {
+      const steps: StepDetail[] = Array.from(data.steps.entries()).map(([sName, sData]): StepDetail => {
         const sAvg = sData.durations.length > 0 ? sData.durations.reduce((a, b) => a + b, 0) / sData.durations.length : 0;
         return {
           name: sName,
           avgDurationSeconds: Math.round(sAvg * 10) / 10,
           maxDurationSeconds: Math.round(Math.max(...(sData.durations.length > 0 ? sData.durations : [0])) * 10) / 10,
           failureRate: sData.total > 0 ? Math.round((sData.failures / sData.total) * 1000) / 10 : 0,
-          status: (sData.total > 0 && sData.failures / sData.total > 0.3) ? 'bottleneck' : (sAvg > 60 ? 'warning' : 'healthy'),
+          status: (sData.total > 0 && sData.failures / sData.total > 0.3) ? 'bottleneck' as const : (sAvg > 60 ? 'warning' as const : 'healthy' as const),
         };
       }).sort((a, b) => b.avgDurationSeconds - a.avgDurationSeconds);
-
+ 
       return {
         name: key.split('::')[1],
         workflowName: data.workflow,
@@ -366,7 +366,7 @@ export async function scanCICD(owner: string, repo: string, token?: string): Pro
         maxDurationMinutes: Math.round((data.durations.length > 0 ? Math.max(...data.durations) : 0) * 100) / 100,
         minDurationMinutes: Math.round((data.durations.length > 0 ? Math.min(...data.durations) : 0) * 100) / 100,
         runnerLabel: data.runner,
-        status: avg > 10 ? 'bottleneck' : avg > 5 ? 'warning' : 'healthy',
+        status: avg > 10 ? 'bottleneck' as const : avg > 5 ? 'warning' as const : 'healthy' as const,
         steps,
       };
     }).sort((a, b) => b.avgDurationMinutes - a.avgDurationMinutes);
@@ -1251,44 +1251,33 @@ export async function scanDependencies(owner: string, repo: string, token?: stri
     let ecosystem = 'npm';
 
     // ── Phase 1: Fast-path — check root-level manifests ──
-    for (const { file, parse, ecosystem: eco } of MANIFEST_PARSERS) {
-      const content = await fetchFileContent(octokit, owner, repo, file);
-      if (content) {
-        const parsed = parse(content);
-        if (parsed.length > 0) {
-          allDeps.push(...parsed);
-          ecosystem = eco;
-          // Keep going to find others if any
-        }
-      }
-    }
-
-    // ── Phase 2: Monorepo fallback — check common subdirectories ──
-    for (const dir of MONOREPO_SUBDIRS) {
-      for (const { file, parse, ecosystem: eco } of MANIFEST_PARSERS) {
-        const subContent = await fetchFileContent(octokit, owner, repo, `${dir}/${file}`);
-        if (subContent) {
-          const parsed = parse(subContent);
-          if (parsed.length > 0) {
-            allDeps.push(...parsed);
-            if (allDeps.length === parsed.length) ecosystem = eco; // use first one as primary eco
-          }
-        }
-      }
-    }
-
-    // ── Phase 3: Deep scan — use Git Trees API to find manifests anywhere ──
     const manifestFiles = await detectManifestFiles(octokit, owner, repo);
-    for (const { path, parser } of manifestFiles) {
-      // Avoid double-fetching if already found in Phase 1 or 2
-      if (path.split('/').length <= 2) continue; 
-      
+    
+    // Sort manifest files: prioritize root-level manifests
+    const sortedManifests = manifestFiles.sort((a, b) => {
+      const depthA = a.path.split('/').length;
+      const depthB = b.path.split('/').length;
+      return depthA - depthB;
+    });
+
+    for (let i = 0; i < sortedManifests.length; i++) {
+      const { path, parser } = sortedManifests[i];
+      // Throttle slightly to avoid secondary rate limits on large monorepos
+      if (i > 10) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+
       const content = await fetchFileContent(octokit, owner, repo, path);
       if (content) {
-        const parsed = parser.parse(content);
-        if (parsed.length > 0) {
-          allDeps.push(...parsed);
-          if (allDeps.length === parsed.length) ecosystem = parser.ecosystem;
+        try {
+          const parsed = parser.parse(content);
+          if (parsed.length > 0) {
+            allDeps.push(...parsed);
+            // Use the first significant manifest we find as the primary ecosystem if not set
+            if (allDeps.length === parsed.length) ecosystem = parser.ecosystem;
+          }
+        } catch (e) {
+          console.warn(`[Scanner] Failed to parse manifest at ${path}:`, e);
         }
       }
     }
