@@ -5405,6 +5405,12 @@ h4 { font-size: 1.125rem; }
   z-index: 0;
 }
 
+/* Deploy banner reveal animation */
+@keyframes surgeryDeployReveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Header bar of console */
 .surgery-console-header {
   padding: 12px 20px;

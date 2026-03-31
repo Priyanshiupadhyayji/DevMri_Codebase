@@ -127,7 +127,7 @@ export default function DashboardPage() {
   const [dxScoreGlow, setDxScoreGlow] = useState(false);
   const [fixPrLoading, setFixPrLoading] = useState<string | null>(null);
   const surgeryInProgress = fixPrLoading;
-  const [prCreated, setPrCreated] = useState<{ url: string; number: number } | null>(null);
+  const [prCreated, setPrCreated] = useState<{ url: string; number: number; note?: string } | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatMaximized, setIsChatMaximized] = useState(false);
@@ -480,8 +480,8 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setPrCreated({ url: data.prUrl, number: data.prNumber });
-        setTimeout(() => setPrCreated(null), 8000);
+        setPrCreated({ url: data.prUrl, number: data.prNumber, note: data.note });
+        setTimeout(() => setPrCreated(null), 30000);
       } else {
         alert(`Failed to create PR: ${data.error}`);
       }
@@ -762,7 +762,9 @@ export default function DashboardPage() {
       const data = await res.json();
       if (data.success) {
         setFixStatus(prev => ({ ...prev, [recId]: { success: true, message: 'PR Created.', url: data.prUrl, number: data.prNumber } }));
-        setTimeout(() => setPrCreated(null), 8000);
+        // Also show the global PR card so user sees the link
+        setPrCreated({ url: data.prUrl, number: data.prNumber, note: data.note });
+        setTimeout(() => setPrCreated(null), 30000);
       } else {
         setFixStatus(prev => ({ ...prev, [recId]: { success: false, message: data.error || 'Operation Failed.' } }));
       }
@@ -997,15 +999,6 @@ export default function DashboardPage() {
               <ThemeToggle />
            </div>
            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button className="btn-hero-primary" onClick={() => { setActiveTab('surgery'); }}>
-                🚀 Create Fix PR
-              </button>
-              <button className="btn-hero-secondary" onClick={copyShareLink}>
-                {showShareToast ? '✓ Copied' : 'Share'}
-              </button>
-              <button className="btn-hero-secondary" onClick={() => setIsEmailPromptOpen(true)}>
-                {showEmailToast ? '✓ Shipped' : '📧 Ship via Email'}
-              </button>
               <button className="btn-hero-secondary" onClick={downloadPDFReport}>
                 Export Report
               </button>
@@ -1266,9 +1259,11 @@ export default function DashboardPage() {
           <SurgeryTab 
             result={result}
             aiDiagnosis={result.aiDiagnosis}
-            fixStatus={fixSuccess}
+            fixStatus={fixStatus}
             handleApplyFix={handleApplyFix}
-            fixingRec={fixPrLoading}
+            fixingRec={fixingRec}
+            fixPrLoading={fixPrLoading}
+            prCreated={prCreated}
             createFixPR={createFixPR}
             triggerVocalSurgery={triggerVocalSurgery}
             isVocalListening={isVocalListening}

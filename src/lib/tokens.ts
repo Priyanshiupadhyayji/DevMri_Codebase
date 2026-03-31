@@ -81,20 +81,26 @@ export function createOctokit(token?: string): Octokit {
 }
 
 /**
- * Retries an async function on transient network errors (ECONNRESET, 500, 502, 503).
- * Uses exponential backoff: 1s → 2s → 4s.
+ * Retries an async function on network or authorization errors.
+ * On 401 (Unauthorized) or 403 (Forbidden/Rate Limit), it will attempt to rotate tokens 
+ * if a rotation function is provided.
  */
 export async function withRetry<T>(
-  fn: () => Promise<T>,
+  fn: (octokit?: Octokit) => Promise<T>,
   maxAttempts = 3,
   label = 'GitHub API call'
 ): Promise<T> {
-  let lastError: unknown;
+  let lastError: any;
+  
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      // In advanced implementations, we could pass a fresh octokit here
       return await fn();
     } catch (e: any) {
       lastError = e;
+      
+      const isUnauthorized = e?.status === 401;
+      const isRateLimited = e?.status === 403 || e?.status === 429;
       const isTransient =
         e?.code === 'ECONNRESET' ||
         e?.code === 'ECONNREFUSED' ||
@@ -105,9 +111,19 @@ export async function withRetry<T>(
         String(e?.message).includes('ECONNRESET') ||
         String(e?.message).includes('fetch failed');
 
-      if (!isTransient || attempt === maxAttempts) break;
-      const backoffMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-      console.warn(`[DevMRI] ⚡ ${label} failed (${e?.code || e?.status}), retry ${attempt}/${maxAttempts - 1} in ${backoffMs}ms`);
+      if (isUnauthorized) {
+        console.error(`[DevMRI] ❌ Token Unauthorized (401) during ${label}. Please check Vercel Env Vars.`);
+        // Force rotation for the next attempt by manually ticking index
+        getNextGithubToken(); 
+      } else if (isRateLimited) {
+        console.warn(`[DevMRI] ⏳ Rate Limit/Forbidden (403/429) on ${label}. Rotating token pool...`);
+        getNextGithubToken();
+      }
+
+      if ((!isTransient && !isUnauthorized && !isRateLimited) || attempt === maxAttempts) break;
+      
+      const backoffMs = isUnauthorized || isRateLimited ? 100 : Math.pow(2, attempt - 1) * 1000;
+      console.warn(`[DevMRI] ⚡ ${label} failed (${e?.status || e?.code}), attempt ${attempt}/${maxAttempts}. Retrying...`);
       await new Promise(r => setTimeout(r, backoffMs));
     }
   }
