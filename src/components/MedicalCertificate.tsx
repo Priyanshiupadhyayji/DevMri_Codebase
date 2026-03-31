@@ -32,7 +32,7 @@ export function MedicalCertificate({ repoName, dxScore, grade, onClose }: Medica
     canvas.width = 800;
     canvas.height = 600;
 
-    // Background
+    // Background — always dark for the downloadable image
     const gradient = ctx.createLinearGradient(0, 0, 800, 600);
     gradient.addColorStop(0, '#0a0e14');
     gradient.addColorStop(0.5, '#0d1520');
@@ -118,7 +118,13 @@ export function MedicalCertificate({ repoName, dxScore, grade, onClose }: Medica
       <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
         <div className="medical-certificate-seal">🧠</div>
         
-        <h2 style={{ color: '#8899aa', fontSize: '0.9rem', letterSpacing: 3, textTransform: 'uppercase', marginBottom: 20 }}>
+        <h2 style={{ 
+          color: 'var(--text-secondary)', 
+          fontSize: '0.9rem', 
+          letterSpacing: 3, 
+          textTransform: 'uppercase', 
+          marginBottom: 20 
+        }}>
           Developer Experience Certificate
         </h2>
         
@@ -126,27 +132,46 @@ export function MedicalCertificate({ repoName, dxScore, grade, onClose }: Medica
           {grade}
         </div>
         
-        <div id="dx-cert-score" className="medical-certificate-score" style={{ marginTop: 8 }}>
+        <div id="dx-cert-score" className="medical-certificate-score" style={{ 
+          marginTop: 8, 
+          color: 'var(--text-primary)' 
+        }}>
           {dxScore || 0}
         </div>
         
-        <p style={{ color: '#556677', fontSize: '0.8rem', marginTop: 4, textTransform: 'uppercase', letterSpacing: 2 }}>
+        <p style={{ 
+          color: 'var(--text-muted)', 
+          fontSize: '0.8rem', 
+          marginTop: 4, 
+          textTransform: 'uppercase', 
+          letterSpacing: 2 
+        }}>
           DX Score
         </p>
         
         <div className="medical-repo-badge" style={{ 
           marginTop: 24, 
           padding: '12px 24px', 
-          background: 'rgba(0,229,255,0.08)', 
+          background: 'var(--scan-cyan-glow)', 
           borderRadius: 8,
           display: 'inline-block'
         }}>
-          <p id="dx-cert-repo-name" style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', margin: 0, fontWeight: 700 }}>
+          <p id="dx-cert-repo-name" style={{ 
+            fontFamily: 'var(--font-mono)', 
+            fontSize: '1.1rem', 
+            margin: 0, 
+            fontWeight: 700, 
+            color: 'var(--text-primary)' 
+          }}>
             {repoName}
           </p>
         </div>
         
-        <p style={{ color: '#556677', fontSize: '0.75rem', marginTop: 24 }}>
+        <p style={{ 
+          color: 'var(--text-muted)', 
+          fontSize: '0.75rem', 
+          marginTop: 24 
+        }}>
           Generated on {new Date().toLocaleDateString('en-US', { 
             year: 'numeric', 
             month: 'long', 
@@ -178,10 +203,10 @@ export function MedicalCertificate({ repoName, dxScore, grade, onClose }: Medica
               onClick={onClose}
               style={{
                 background: 'transparent',
-                border: '1px solid #334455',
+                border: '1px solid var(--text-dim)',
                 borderRadius: 8,
                 padding: '12px 24px',
-                color: '#8899aa',
+                color: 'var(--text-secondary)',
                 fontWeight: 600,
                 fontSize: '0.9rem',
                 cursor: 'pointer',

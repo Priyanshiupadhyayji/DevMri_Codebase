@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getNextGithubToken } from '@/lib/tokens';
 
 /**
  * SBOM (Software Bill of Materials) Generator
@@ -7,7 +8,7 @@ import { NextRequest } from 'next/server';
 export async function GET(req: NextRequest) {
   const repoParam = req.nextUrl.searchParams.get('repo') || 'demo/playground';
   const [owner, repo] = repoParam.split('/');
-  const token = process.env.GITHUB_TOKEN || '';
+  const token = getNextGithubToken();
 
   try {
     // Fetch package.json from the repo

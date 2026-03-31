@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Octokit } from '@octokit/rest';
+import { createOctokit } from '@/lib/tokens';
 
 // ═══════════════════════════════════════════════════════════════
 // TEAM X-RAY — Who Works on What?
@@ -80,17 +80,7 @@ const DOMAINS: DomainRule[] = [
       /^(docs?|documentation|wiki|examples|tutorials|guides)\//i,
       /\.(md|mdx|rst|adoc|txt)$/i,
       /readme|changelog|contributing|license|code.of.conduct/i,
-      /yarn\.lock|package-lock\.json|pnpm-lock\.yaml/i, // Locks as docs/meta
-    ],
-  },
-  {
-    name: 'Data / ML',
-    icon: '🧠',
-    color: '#ff1744',
-    patterns: [
-      /^(data|ml|ai|models|notebooks|pipelines|training|datasets)\//i,
-      /\.(ipynb|pkl|h5|onnx|csv|json|yaml|yml)$/i,
-      /tensorflow|pytorch|sklearn|pandas|numpy|keras|spark/i,
+      /yarn\.lock|package-lock\.json|pnpm-lock\.yaml/i,
     ],
   },
   {
@@ -103,8 +93,6 @@ const DOMAINS: DomainRule[] = [
       /^tsconfig|jsconfig/i,
       /eslint|prettier|editorconfig|babel|swc|husky/i,
       /webpack|rollup|esbuild|gulp|grunt|makefile/i,
-      /^\.husky\//i,
-      /^\.(npm|yarn|pnpm)/i,
     ],
   },
 ];
@@ -127,13 +115,47 @@ export async function GET(request: NextRequest) {
   }
 
   const [owner, repoName] = repo.split('/');
-  const token = process.env.GITHUB_TOKEN;
-  const octokit = new Octokit({ auth: token || undefined });
+  const octokit = createOctokit();
 
   try {
-    // ─── 1. Get recent commits with file lists (paginate up to 500) ───
+    // ─── 1. Build Contributor Map with FULL ecosystem capture ───
+    const contributorMap: Record<string, any> = {};
+    let totalContributorsDetected = 0;
+
+    // Fetch up to 5,000 contributors
+    try {
+      for (let page = 1; page <= 50; page++) {
+        const { data: pageContibs } = await octokit.repos.listContributors({
+          owner,
+          repo: repoName,
+          per_page: 100,
+          page,
+          anon: '1'
+        });
+        
+        for (const c of pageContibs) {
+          const login = c.login || c.name || 'unknown';
+          contributorMap[login] = {
+            login,
+            avatar: c.avatar_url || '',
+            domains: {},
+            totalCommits: c.contributions || 0,
+            files: [],
+            recentDate: '',
+            hourlyActivity: new Array(24).fill(0),
+            economicImpact: Math.round((c.contributions || 0) * 450)
+          };
+        }
+        totalContributorsDetected += pageContibs.length;
+        if (pageContibs.length < 100) break;
+      }
+    } catch (e) {
+      console.warn('[TeamAPI] Full contributor list failed, relying on history.');
+    }
+
+    // ─── 2. Fetch Deep Commit History (up to 1,000) ───
     let allCommits: any[] = [];
-    for (let page = 1; page <= 5; page++) {
+    for (let page = 1; page <= 10; page++) {
       const { data: pageCommits } = await octokit.repos.listCommits({
         owner,
         repo: repoName,
@@ -141,53 +163,41 @@ export async function GET(request: NextRequest) {
         page,
       });
       allCommits.push(...pageCommits);
-      if (pageCommits.length < 100) break; // no more pages
+      if (pageCommits.length < 100) break;
     }
 
-    // Map: contributor → { domain → commit count }
-    const contributorMap: Record<string, {
-      login: string;
-      avatar: string;
-      domains: Record<string, number>;
-      totalCommits: number;
-      files: string[];
-      recentDate: string;
-      hourlyActivity: number[]; // 0-23
-    }> = {};
-
-    // ─── 2. First pass: Count ALL contributors from ALL fetched commits ───
+    // ─── 3. Enrichment & Classification ───
     for (const commit of allCommits) {
       const login = commit.author?.login || commit.commit.author?.name || 'unknown';
-      const avatar = commit.author?.avatar_url || '';
       const date = commit.commit.author?.date || '';
 
       if (!contributorMap[login]) {
         contributorMap[login] = {
           login,
-          avatar,
+          avatar: commit.author?.avatar_url || '',
           domains: {},
           totalCommits: 0,
           files: [],
           recentDate: date,
           hourlyActivity: new Array(24).fill(0),
+          economicImpact: 0
         };
       }
 
-      const commitDate = new Date(date);
-      const hour = commitDate.getUTCHours();
-      contributorMap[login].hourlyActivity[hour]++;
-
-      contributorMap[login].totalCommits++;
-      if (date > contributorMap[login].recentDate) {
+      // Update recency
+      if (!contributorMap[login].recentDate || date > contributorMap[login].recentDate) {
         contributorMap[login].recentDate = date;
       }
+
+      // Track hourly pulses
+      const hour = new Date(date).getUTCHours();
+      contributorMap[login].hourlyActivity[hour]++;
     }
 
-    // ─── 3. Second pass: Fetch file details for a sample to classify domains ───
-    const commitSample = allCommits.slice(0, 80);
+    // Domain Classification (Sample of 50 most recent commits)
+    const commitSample = allCommits.slice(0, 50);
     for (const commit of commitSample) {
       const login = commit.author?.login || commit.commit.author?.name || 'unknown';
-
       try {
         const { data: detail } = await octokit.repos.getCommit({
           owner,
@@ -198,102 +208,72 @@ export async function GET(request: NextRequest) {
         for (const file of (detail.files || [])) {
           const domain = classifyFile(file.filename);
           contributorMap[login].domains[domain] = (contributorMap[login].domains[domain] || 0) + 1;
-          
           if (!contributorMap[login].files.includes(file.filename)) {
             contributorMap[login].files.push(file.filename);
           }
         }
-      } catch {
-        // Skip commits we can't fetch details for
-      }
+      } catch (e) {}
     }
 
-    const totalFiles = new Set<string>();
-    Object.values(contributorMap).forEach(c => c.files.forEach(f => totalFiles.add(f)));
+    const totalFilesTouched = new Set<string>();
+    Object.values(contributorMap).forEach(c => c.files.forEach((f:string) => totalFilesTouched.add(f)));
 
-    // ─── 3. Build contributor profiles ───
+    // ─── 4. Final Finalize ───
     const contributors = Object.values(contributorMap)
-      .filter(c => c.totalCommits >= 1)
       .map(c => {
-        const totalFileTouches = Object.values(c.domains).reduce((a, b) => a + b, 0);
-        
-        // Uniquely owned = we need to check if others touched these files
-        const uniquelyOwned = c.files.filter(f => {
-          return Object.values(contributorMap).filter(other => other.login !== c.login && other.files.includes(f)).length === 0;
-        });
-
-        const knowledgeCoverage = Math.round((c.files.length / totalFiles.size) * 100) || 0;
-        const economicImpact = Math.round(c.totalCommits * 450); // Mocked dollar value based on commit volume
-
-        // Calculate domain percentages
+        const domainTouches = Object.values(c.domains).reduce((a:any, b:any) => a + b, 0) as number;
         const domainBreakdown = Object.entries(c.domains)
           .map(([name, count]) => ({
             name,
             count,
-            percentage: Math.round((count / totalFileTouches) * 100),
+            percentage: Math.round(((count as number) / domainTouches) * 100) || 0,
             icon: DOMAINS.find(d => d.name === name)?.icon || '📁',
             color: DOMAINS.find(d => d.name === name)?.color || '#8899aa',
           }))
-          .sort((a, b) => b.count - a.count);
+          .sort((a, b) => (b.count as number) - (a.count as number));
 
-        // Primary role = domain with most file touches
         const primaryDomain = domainBreakdown[0] || { name: 'Unknown', icon: '❓', color: '#8899aa' };
+        const daysSinceActive = c.recentDate ? Math.round((Date.now() - new Date(c.recentDate).getTime()) / 86400000) : -1;
         
-        // Is this person a specialist or generalist?
-        const topDomainPct = domainBreakdown[0]?.percentage || 0;
-        const role = topDomainPct > 70 ? 'Specialist' : topDomainPct > 45 ? 'Focused' : 'Generalist';
-
-        // Days since last commit
-        const daysSinceActive = Math.round((Date.now() - new Date(c.recentDate).getTime()) / 86400000);
-        const activityStatus = daysSinceActive <= 7 ? 'Active' : daysSinceActive <= 30 ? 'Recent' : daysSinceActive <= 90 ? 'Dormant' : 'Inactive';
-
         return {
-          login: c.login,
-          avatar: c.avatar,
-          totalCommits: c.totalCommits,
+          ...c,
           primaryDomain: primaryDomain.name,
           primaryIcon: primaryDomain.icon,
           primaryColor: primaryDomain.color,
-          role,
-          activityStatus,
+          role: domainBreakdown[0]?.percentage > 70 ? 'Specialist' : 'Generalist',
+          activityStatus: daysSinceActive < 0 ? 'Dormant' : daysSinceActive < 7 ? 'Active' : daysSinceActive < 30 ? 'Recent' : 'Inactive',
           daysSinceActive,
-          lastActive: c.recentDate,
           domainBreakdown,
-          topFiles: c.files.slice(0, 10),
-          hourlyActivity: c.hourlyActivity,
-          burnoutRisk: c.hourlyActivity.slice(0, 6).reduce((a, b) => a + b, 0) > (c.totalCommits * 0.3) ? 'high' : 'low',
-          knowledgeCoverage,
-          uniquelyOwnedCount: uniquelyOwned.length,
-          economicImpact,
+          knowledgeCoverage: Math.round((c.files.length / (totalFilesTouched.size || 1)) * 100),
+          burnoutRisk: c.hourlyActivity.slice(0, 6).reduce((a:any,b:any)=>a+b,0) > 10 ? 'high' : 'low',
+          uniquelyOwnedCount: c.files.filter((f:string) => {
+            return Object.values(contributorMap).filter(other => other.login !== c.login && other.files.includes(f)).length === 0;
+          }).length
         };
       })
-      .sort((a, b) => b.totalCommits - a.totalCommits);
+      .sort((a, b) => (b.totalCommits || 0) - (a.totalCommits || 0));
 
-    // ─── 4. Build domain summary ───
+    // Summary Statistics
     const domainSummary = DOMAINS.map(domain => {
       const membersInDomain = contributors.filter(c => 
-        c.domainBreakdown.some(d => d.name === domain.name && d.percentage >= 15)
+        c.domainBreakdown.some((d: any) => d.name === domain.name && d.percentage >= 15)
       );
-      const totalTouches = contributors.reduce((sum, c) => {
-        const d = c.domainBreakdown.find(d => d.name === domain.name);
-        return sum + (d?.count || 0);
-      }, 0);
-
       return {
         name: domain.name,
         icon: domain.icon,
         color: domain.color,
         memberCount: membersInDomain.length,
         members: membersInDomain.map(m => m.login),
-        totalFileTouches: totalTouches,
+        totalFileTouches: contributors.reduce((sum, c) => {
+          const d = c.domainBreakdown.find((d: any) => d.name === domain.name);
+          return sum + (d?.count || 0);
+        }, 0)
       };
     }).filter(d => d.totalFileTouches > 0)
       .sort((a, b) => b.totalFileTouches - a.totalFileTouches);
 
-    // ─── 5. Risk analysis ───
+    // Risk Analysis
     const risks = [];
-    
-    // Bus factor per domain
     for (const domain of domainSummary) {
       if (domain.memberCount === 1) {
         risks.push({
@@ -302,8 +282,6 @@ export async function GET(request: NextRequest) {
         });
       }
     }
-
-    // Dormant domains
     for (const c of contributors) {
       if (c.activityStatus === 'Inactive' && c.totalCommits >= 5) {
         risks.push({
@@ -313,75 +291,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // No testing contributors
-    const testingDomain = domainSummary.find(d => d.name === 'Testing');
-    if (!testingDomain || testingDomain.memberCount === 0) {
-      risks.push({
-        severity: 'HIGH',
-        message: '🧪 No dedicated testing contributors detected — QA coverage at risk',
-      });
-    }
-
-    // ─── 6. Fetch ALL contributors via listContributors to capture ones outside commit window ───
-    let allGitHubContributors: any[] = [];
-    try {
-      for (let page = 1; page <= 5; page++) {
-        const { data: ghContribs } = await octokit.repos.listContributors({
-          owner,
-          repo: repoName,
-          per_page: 100,
-          page,
-        });
-        if (Array.isArray(ghContribs) && ghContribs.length > 0) {
-          allGitHubContributors.push(...ghContribs);
-          if (ghContribs.length < 100) break;
-        } else {
-          break;
-        }
-      }
-    } catch { /* Proceed with what we have from commits */ }
-
-    // Merge: add contributors from listContributors that we missed in commits
-    const existingLogins = new Set(contributors.map(c => c.login));
-    const extraContributors = allGitHubContributors
-      .filter(c => c.login && !existingLogins.has(c.login))
-      .map(c => ({
-        login: c.login,
-        avatar: c.avatar_url || '',
-        totalCommits: c.contributions || 0,
-        primaryDomain: 'Unknown',
-        primaryIcon: '❓',
-        primaryColor: '#8899aa',
-        role: 'Contributor',
-        activityStatus: 'Unknown' as const,
-        daysSinceActive: -1,
-        lastActive: '',
-        domainBreakdown: [],
-        topFiles: [],
-        hourlyActivity: new Array(24).fill(0),
-        burnoutRisk: 'low' as const,
-        knowledgeCoverage: 0,
-        uniquelyOwnedCount: 0,
-        economicImpact: Math.round((c.contributions || 0) * 450),
-      }));
-
-    const allContributors = [...contributors, ...extraContributors];
-    const actualTotalContributors = Math.max(allContributors.length, allGitHubContributors.length);
-
     return NextResponse.json({
       repo,
-      analyzedCommits: commitSample.length,
-      totalContributors: actualTotalContributors,
-      contributors: allContributors,
+      analyzedCommits: allCommits.length,
+      totalContributors: Math.max(contributors.length, totalContributorsDetected),
+      contributors,
       domainSummary,
       risks,
       domains: DOMAINS.map(d => ({ name: d.name, icon: d.icon, color: d.color })),
     });
 
   } catch (error: any) {
-    return NextResponse.json({
-      error: error.message || 'Failed to analyze team',
-      status: error.status || 500,
-    }, { status: error.status || 500 });
+    console.error('[TeamAPI] Error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -873,63 +873,138 @@ function generateMockDiagnosis(results: FullScanResult): AIDiagnosis {
 }
 
 function cleanJSON(text: string): string {
-  // 1. Remove markdown code blocks
-  let cleaned = text.replace(/```json\n?|```/g, '');
+  // 1. Remove markdown code fences
+  let cleaned = text.replace(/```(?:json|yaml|text|javascript|typescript|sh|bash|python)?\n?/g, '');
+  cleaned = cleaned.replace(/```/g, '');
   
-  // 2. Extract only the first { to the last }
+  // 2. Extract only the outermost JSON object {…}
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   if (firstBrace === -1 || lastBrace === -1) return cleaned.trim();
   cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-  
-  // 3. Fix common LLM escaping errors
-  // Fix literal \" inside strings that should just be "
-  // But don't break properly escaped characters
-  cleaned = cleaned.replace(/\\"/g, '"');
-  
-  // 4. Fix cases where LLM puts a backslash before a quote unnecessarily
-  // e.g. "value": \"something\" -> "value": "something"
-  cleaned = cleaned.replace(/:\s*\\"/g, ': "');
-  cleaned = cleaned.replace(/\\"\s*,/g, '",');
-  cleaned = cleaned.replace(/\\"\s*\}/g, '"}');
+
+  // 3. Walk the JSON character-by-character to escape unescaped quotes INSIDE string
+  // values and replace literal newlines/carriage-returns inside strings with \n / \r.
+  cleaned = fixEmbeddedQuotes(cleaned);
 
   return cleaned.trim();
 }
 
 /**
- * Aggressively attempt to fix broken JSON from LLMs
+ * Aggressively attempt to fix broken JSON from LLMs.
  */
 function rescueJSON(jsonStr: string): string {
   let res = jsonStr;
-  
-  // 1. Remove trailing commas in objects and arrays
+
+  // 1. Remove trailing commas in objects and arrays (must run before other fixes)
   res = res.replace(/,\s*([\}\]])/g, '$1');
-  
-  // 2. Fix missing commas between properties or array elements
-  // e.g. "a": 1 "b": 2 -> "a": 1, "b": 2
-  res = res.replace(/"\s+([a-zA-Z0-9_]+":)/g, '", "$1');
-  // e.g. ["a" "b"] -> ["a", "b"]
-  res = res.replace(/"\s+"/g, '", "');
-  // e.g. [{...} {...}] -> [{...}, {...}]
-  res = res.replace(/\}\s+\{/g, '}, {');
-  
-  // 3. Fix unescaped newlines in values
-  res = res.replace(/\n/g, '\\n');
-  
-  // 4. Heuristic: Fix unescaped double quotes within property values
-  // We look for "prop": "content "with" quotes"
-  // This is tricky, but we can try to find quotes that are NOT preceded by : and NOT followed by , or }
-  // First, find all string values: everything between : " and " (followed by , or })
-  res = res.replace(/:\s*"([\s\S]*?)"\s*([,}])/g, (match, content, suffix) => {
-    // Escape all internal quotes in 'content'
-    const fixedContent = content.replace(/(?<!\\)"/g, '\\"');
-    return `: "${fixedContent}"${suffix}`;
+
+  // 2. Fix broken array elements: literal newlines/tabs inside array strings
+  // e.g. ["good item", broken\nitem", "next"] → ["good item", "broken item", "next"]
+  res = res.replace(/",\s*\n\s*([^"\n{}\[\]]+)"/g, (_, content) => {
+    return `", "${content.replace(/\n/g, ' ').trim()}"`;
   });
 
-  // 5. Un-break structural quotes we might have over-escaped
-  res = res.replace(/\\n\s*([\{\}\[\]:])/g, '\n$1');
-  
+  // 3. Fix missing commas between string elements that were separated by newlines
+  res = res.replace(/"\s*\n\s*"/g, '", "');
+  res = res.replace(/\}\s*\n\s*\{/g, '}, {');
+  res = res.replace(/\]\s*\n\s*\[/g, '], [');
+
+  // 4. Nuclear option: walk through every JSON string value and sanitize control chars.
+  // This catches anything fixEmbeddedQuotes missed (tabs, form-feeds, etc).
+  res = res.replace(/"((?:[^"\\]|\\.)*)"/g, (match, content) => {
+    try {
+      // Round-trip: parse the content as if it were inside a string, re-stringify
+      const safe = content
+        .replace(/\t/g, '\\t')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\f/g, '\\f')
+        .replace(/\b/g, '\\b');
+      return `"${safe}"`;
+    } catch {
+      return match;
+    }
+  });
+
+  // 5. AUTO-CLOSE: Balance braces/brackets if response was truncated
+  const openBraces = (res.match(/\{/g) || []).length;
+  const closedBraces = (res.match(/\}/g) || []).length;
+  const openBrackets = (res.match(/\[/g) || []).length;
+  const closedBrackets = (res.match(/\]/g) || []).length;
+
+  res += ']'.repeat(Math.max(0, openBrackets - closedBrackets));
+  res += '}'.repeat(Math.max(0, openBraces - closedBraces));
+
   return res;
+}
+
+
+
+/**
+ * Walk through `json` and escape unescaped `"` characters that appear
+ * inside JSON string values (between the opening and closing delimiter).
+ */
+function fixEmbeddedQuotes(json: string): string {
+  const out: string[] = [];
+  let i = 0;
+  const len = json.length;
+
+  while (i < len) {
+    const ch = json[i];
+    out.push(ch);
+    i++;
+
+    if (ch === '\\') {
+      // Skip the escaped character
+      if (i < len) {
+        out.push(json[i]);
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      // We just entered a string.  Now consume characters until we hit
+      // the closing `"` that is followed by a structural character
+      // (whitespace + `,` `}` `]`) or end-of-input.
+      while (i < len) {
+        const inner = json[i];
+        if (inner === '\\') {
+          out.push(inner);
+          i++;
+          if (i < len) {
+            out.push(json[i]);
+            i++;
+          }
+          continue;
+        }
+
+        if (inner === '"') {
+          // Peek ahead past whitespace to see what follows
+          let j = i + 1;
+          while (j < len && /\s/.test(json[j])) j++;
+          const next = j < len ? json[j] : '';
+
+          if (next === ',' || next === '}' || next === ']' || next === ':' || j >= len) {
+            // This is the structural closing quote — emit and break
+            out.push(inner);
+            i++;
+            break;
+          }
+          // Otherwise this is an embedded quote — escape it
+          out.push('\\');
+          out.push('"');
+          i++;
+        } else {
+          out.push(inner);
+          i++;
+        }
+      }
+    }
+  }
+
+  return out.join('');
 }
 
 export async function generateDiagnosis(results: FullScanResult): Promise<AIDiagnosis | null> {
@@ -937,17 +1012,18 @@ export async function generateDiagnosis(results: FullScanResult): Promise<AIDiag
 
   try {
     const scanSummary = buildScanSummary(results);
-    const prompt = `Clinical data for ${results.repo.owner}/${results.repo.repo}:\n\n${scanSummary}\n\nDeliver the diagnosis in JSON format matching the schema. CRITICAL: Ensure the JSON is valid and every property is quoted.`;
+    const prompt = `System Pathology Report: ${results.repo.owner}/${results.repo.repo}\n\n${scanSummary}\n\nTask: Provide a technical repository diagnosis in JSON format.\nRules:\n- Output ONLY raw JSON.\n- Ensure all text is inside double quotes.\n- Escape any nested quotes as \\".\n- No conversational filler.`;
     
     const completion = await megallm.chat.completions.create({
       model: MEGALLM_MODEL,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: 'You are a senior DevOps physician. Analyze the provided repository scan data and return a JSON diagnosis following the schema: { recommendations: Array<{ severity, title, description, metric, frictionCost, projectedScoreChange }>, recoveryPlan: { currentScore, projectedScore, totalMonthlySavings } }. Keep it concise.' },
         { role: 'user', content: prompt },
       ],
       temperature: 0.1, // Even lower for better stability
-      max_tokens: 4096,
+      max_tokens: 8192,
     });
+
     
     const text = completion.choices[0]?.message?.content || '';
     const cleaned = cleanJSON(text);
@@ -1046,8 +1122,9 @@ export async function chatFollowUp(
 
       const chat = geminiModel.startChat({
         history: chatHistory,
-        generationConfig: { temperature: 0.4, maxOutputTokens: 2048 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
       });
+
 
       const result = await chat.sendMessage(message);
       console.log('[Gemini] ✅ Fallback successful');

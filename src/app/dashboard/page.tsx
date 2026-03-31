@@ -837,9 +837,16 @@ export default function DashboardPage() {
               value={targetEmail}
               onChange={(e) => setTargetEmail(e.target.value)}
               style={{
-                width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)',
-                borderRadius: 12, padding: '14px 18px', color: '#fff', fontSize: '0.9rem', outline: 'none',
-                marginBottom: 20, textAlign: 'center'
+                width: '100%', 
+                background: 'var(--bg-secondary)', 
+                border: '1px solid var(--scan-cyan-dim)',
+                borderRadius: 12, 
+                padding: '14px 18px', 
+                color: 'var(--text-primary)', 
+                fontSize: '0.9rem', 
+                outline: 'none',
+                marginBottom: 20, 
+                textAlign: 'center'
               }}
               onKeyDown={(e) => e.key === 'Enter' && sendEmailReport()}
               autoFocus
@@ -4146,17 +4153,17 @@ export default function DashboardPage() {
                           {d.totalFileTouches} file touches
                         </div>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 8 }}>
-                          {d.members.slice(0, 3).join(', ')}{d.members.length > 3 ? ` +${d.members.length - 3}` : ''}
+                          {d.members?.slice(0, 3).join(', ')}{(d.members?.length || 0) > 3 ? ` +${d.members.length - 3}` : ''}
                         </div>
                       </div>
                     ))}
                   </div>
 
                   {/* Risk Alerts — White Theme Compatible */}
-                  {teamData.risks.length > 0 && (
+                  {(teamData.risks?.length || 0) > 0 && (
                     <div className="team-risks-section" style={{ marginBottom: 28 }}>
                       <h4 style={{ fontSize: '0.8rem', color: '#e53935', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 900 }}>⚠️ Team Risks</h4>
-                      {teamData.risks.map((r: any, i: number) => (
+                      {teamData.risks?.map((r: any, i: number) => (
                         <div key={i} className="team-risk-card" style={{
                           display: 'flex', gap: 12, alignItems: 'center', padding: '14px 18px',
                           background: r.severity === 'CRITICAL' ? 'rgba(229,57,53,0.1)' : 'rgba(255,152,0,0.08)',
@@ -4187,7 +4194,7 @@ export default function DashboardPage() {
 
                     {/* Contributor Grid */}
                     <div className="team-contributors-grid">
-                      {teamData.contributors.slice(0, contributorLimit).map((c: any, cIdx: number) => {
+                      {teamData.contributors?.slice(0, contributorLimit).map((c: any, cIdx: number) => {
                         const pastelColors = ['#FFD6E0', '#D4F0FF', '#E8D4FF', '#D4FFE4', '#FFF3D4', '#FFE0D4', '#D4EAFF', '#F0D4FF', '#D4FFF0', '#FFDDD4', '#E0FFD4', '#D4DFFF'];
                         const bgColor = pastelColors[cIdx % pastelColors.length];
                         return (
@@ -4238,10 +4245,13 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Show More / Show Less Button */}
-                    {teamData.contributors.length > 24 && (
+                    {(teamData.contributors?.length || 0) > 24 && (
                       <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24, gap: 12 }}>
                         <button
-                          onClick={() => setContributorLimit(prev => prev >= teamData.contributors.length ? 24 : Math.min(prev + 48, teamData.contributors.length))}
+                          onClick={() => setContributorLimit(prev => {
+                            const maxShow = teamData.contributors.length;
+                            return prev >= maxShow ? 24 : Math.min(prev + 48, maxShow);
+                          })}
                           style={{
                             background: 'linear-gradient(135deg, rgba(0,229,255,0.08), rgba(0,229,255,0.02))',
                             border: '1px solid rgba(0,229,255,0.2)',
@@ -4256,16 +4266,16 @@ export default function DashboardPage() {
                             letterSpacing: '0.05em',
                           }}
                         >
-                          {contributorLimit >= teamData.contributors.length
+                          {contributorLimit >= (teamData.contributors?.length || 0)
                             ? `▲ Show Less`
-                            : `▼ Show More (${Math.min(teamData.contributors.length - contributorLimit, 48)} more of ${teamData.contributors.length})`
+                            : `▼ Show More (${Math.min((teamData.contributors?.length || 0) - contributorLimit, 48)} more)`
                           }
                         </button>
                       </div>
                     )}
 
                     <div className="team-footer-stats">
-                      Analyzed {teamData.analyzedCommits} commits · {teamData.totalContributors} contributors detected · Showing {Math.min(contributorLimit, teamData.contributors.length)} of {teamData.contributors.length}
+                      Analyzed {teamData.analyzedCommits} commits · {teamData.totalContributors} contributors detected · Showing {Math.min(contributorLimit, teamData.contributors?.length || 0)} of {teamData.contributors?.length || 0}
                     </div>
                   </div>
                   {/* Legacy list removed in favor of high-fidelity grid above */}

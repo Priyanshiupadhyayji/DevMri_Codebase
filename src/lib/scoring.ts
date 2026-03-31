@@ -141,7 +141,7 @@ export function calculateDXScore(
 ): { score: number; grade: Grade; percentile: number } {
   const docScore = calculateDocStalenessScore(docStalenessFactor);
   
-  // Rebalanced weights for 9 tracks (plus docs)
+  // Core DX modules get high weight; diagnostic modules get light weight
   const w = weights ? {
     cicd: weights.cicd / 100,
     reviews: weights.reviews / 100,
@@ -151,14 +151,16 @@ export function calculateDXScore(
     flow: weights.flow / 100,
     env: weights.env / 100,
   } : {
-    cicd: 0.14,
-    reviews: 0.14,
-    deps: 0.13,
-    docs: 0.08,
-    quality: 0.13,
-    flow: 0.13,
-    env: 0.13,
-    branchHealth: 0.12,
+    cicd: 0.15,
+    reviews: 0.15,
+    deps: 0.12,
+    docs: 0.05,
+    security: 0.20,
+    commitHygiene: 0.08,
+    busFactor: 0.10,
+    quality: 0.05,
+    flow: 0.05,
+    env: 0.05,
   };
 
   const score = Math.round(
@@ -166,10 +168,12 @@ export function calculateDXScore(
     (scores.reviews * w.reviews) + 
     (scores.deps * w.deps) + 
     (docScore * w.docs) +
-    (scores.quality * w.quality) +
-    (scores.flow * w.flow) +
-    (scores.environment * w.env) +
-    ((scores.branchHealth || 50) * ((w as any).branchHealth || 0.12))
+    (scores.quality * (w as any).quality) +
+    (scores.flow * (w as any).flow) +
+    (scores.environment * (w as any).env) +
+    (scores.security * (w as any).security) +
+    (scores.commitHygiene * (w as any).commitHygiene) +
+    (scores.busFactor * (w as any).busFactor)
   );
   
   const grade: Grade = score >= 80 ? 'A' : score >= 60 ? 'B' :

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { Octokit } from '@octokit/rest';
+import { createOctokit, getNextGithubToken } from './tokens';
 
 // ═══════════════════════════════════════════════════════════════════
 // RAG ENGINE — "Chat with your Codebase"
@@ -207,10 +208,12 @@ function chunkCode(content: string, filePath: string, maxChunkLines: number = 60
   return chunks;
 }
 
+
+
 // ─── GITHUB FILE FETCHER ─────────────────────────────────────────
 
 async function fetchRepoTree(owner: string, repo: string, token?: string): Promise<string[]> {
-  const octokit = new Octokit({ auth: token || process.env.GITHUB_TOKEN });
+  const octokit = createOctokit(token);
 
   try {
     const { data: repoData } = await octokit.repos.get({ owner, repo });
@@ -233,7 +236,7 @@ async function fetchRepoTree(owner: string, repo: string, token?: string): Promi
 async function fetchFileContent(
   owner: string, repo: string, path: string, token?: string
 ): Promise<string | null> {
-  const octokit = new Octokit({ auth: token || process.env.GITHUB_TOKEN });
+  const octokit = createOctokit(token);
 
   try {
     const { data } = await octokit.repos.getContent({ owner, repo, path });

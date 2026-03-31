@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { Octokit } from '@octokit/rest';
+import { getNextGithubToken, createOctokit } from '@/lib/tokens';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
-    const authToken = token || process.env.GITHUB_TOKEN;
+    const authToken = token || getNextGithubToken();
 
     // If no token at all, return demo response
     if (!authToken) {
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const octokit = new Octokit({ auth: authToken });
+    const octokit = createOctokit(authToken);
 
     // Verify token permissions first
     let userLogin = 'devmri-user';
@@ -46,7 +47,8 @@ export async function POST(req: NextRequest) {
     let targetRepo = repo;
     let isFork = false;
 
-    const branchName = `devmri/fix-${fixType}-${Date.now()}`;
+    const safeFixType = fixType.replace(/[^a-zA-Z0-9/_-]/g, '-').replace(/-+/g, '-').toLowerCase();
+    const branchName = `devmri/fix-${safeFixType}-${Date.now()}`;
 
     // 1. Try to create branch on the original repo
     try {

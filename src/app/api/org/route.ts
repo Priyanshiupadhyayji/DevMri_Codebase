@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
 import { Octokit } from '@octokit/rest';
+import { getNextGithubToken, createOctokit } from '@/lib/tokens';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const org = searchParams.get('org');
-  const token = searchParams.get('token') || process.env.GITHUB_TOKEN || '';
+  const token = searchParams.get('token') || getNextGithubToken();
 
   if (!org) {
     return new Response('Missing org parameter', { status: 400 });
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
       };
 
       try {
-        const octokit = new Octokit({ auth: token || undefined });
+        const octokit = createOctokit(token || undefined);
 
         send('progress', { phase: 'discovery', message: `Discovering repositories in ${org}...`, percent: 5 });
 

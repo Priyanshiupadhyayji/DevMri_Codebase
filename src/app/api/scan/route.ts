@@ -4,6 +4,8 @@ import { calculateCICDScore, calculateReviewScore, calculateDepScore, calculateS
 import { generateDiagnosis, generatePathology } from '@/lib/ai';
 import { FullScanResult, MLForecast, PredictivePathology } from '@/lib/types';
 import { MOCK_SCAN_RESULT } from '@/lib/mockData';
+import { getNextGithubToken, logTokenPoolStatus } from '@/lib/tokens';
+
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
@@ -87,76 +89,101 @@ export async function GET(req: NextRequest) {
 
         // 1. Repo metadata
         send('progress', { module: 'meta', status: 'scanning', percent: 0, message: 'Fetching repository metadata...' });
+        logTokenPoolStatus();
         const repoMeta = await getRepoMetadata(owner, repo, token);
         send('progress', { module: 'meta', status: 'complete', percent: 5, message: `Found: ${repoMeta.fullName} (${repoMeta.language || 'Unknown'})` });
 
-        // 2. CI/CD scan
-        send('progress', { module: 'cicd', status: 'scanning', percent: 10, message: 'Analyzing CI/CD pipelines...' });
-        const cicd = await scanCICD(owner, repo, token);
+        // Batch task results correctly using a map to ensure data is captured as it finishes
+        const scoreFunctions: Record<string, Function> = {
+          cicd: calculateCICDScore, reviews: calculateReviewScore, deps: calculateDepScore,
+          quality: calculateQualityScore, flow: calculateFlowScore, environment: calculateEnvironmentScore,
+          branchHealth: calculateBranchHealthScore, busFactor: (bf: any) => calculateBusFactorScore(bf?.busFactor || 0),
+          security: calculateSecurityScore, commitHygiene: calculateCommitHygieneScore
+        };
+
+        let cicd: any = null, reviews: any = null, deps: any = null, heatmap: any = null;
+        let necrosis: any = null, quality: any = null, flow: any = null, environment: any = null;
+        let branchHealth: any = null, busFactor: any = null, security: any = null, commitHygiene: any = null;
+
+        const tasks = [
+          { id: 'cicd', run: () => scanCICD(owner, repo, token).then(res => cicd = res) },
+          { id: 'reviews', run: () => scanReviews(owner, repo, token).then(res => reviews = res) },
+          { id: 'deps', run: () => scanDependencies(owner, repo, token).then(res => deps = res) },
+          { id: 'heatmap', run: () => scanFrictionHeatmap(owner, repo, token).then(res => heatmap = res) },
+          { id: 'necrosis', run: () => scanNecrosis(owner, repo, token).then(res => necrosis = res) },
+          { id: 'quality', run: () => scanCodeQuality(owner, repo, token).then(res => quality = res) },
+          { id: 'flow', run: () => scanDeveloperFlow(owner, repo, token).then(res => flow = res) },
+          { id: 'environment', run: () => scanEnvironmentIntegrity(owner, repo, token).then(res => environment = res) },
+          { id: 'branchHealth', run: () => scanBranchHealth(owner, repo, repoMeta.defaultBranch, token).then(res => branchHealth = res) },
+          { id: 'busFactor', run: () => scanBusFactor(owner, repo, token).then(res => busFactor = res) },
+          { id: 'security', run: () => scanSecurity(owner, repo, repoMeta.defaultBranch, token).then(res => security = res) },
+          { id: 'commitHygiene', run: () => scanCommitHygiene(owner, repo, token).then(res => commitHygiene = res) },
+        ];
+
+        const CONCURRENCY = 3;
+        const totalTasks = tasks.length;
+        let completedCount = 0;
+
+        async function processQueue() {
+          const queue = [...tasks];
+          const running = new Set<Promise<any>>();
+          const results = [];
+
+          while (queue.length > 0 || running.size > 0) {
+            while (queue.length > 0 && running.size < CONCURRENCY) {
+              const task = queue.shift()!;
+              send('progress', { 
+                module: task.id, 
+                status: 'scanning', 
+                percent: Math.round((completedCount / totalTasks) * 90), 
+                message: `Analyzing component: ${task.id}...` 
+              });
+              
+              const promise = task.run().catch((err: any) => {
+                console.error(`[DevMRI] Scanner "${task.id}" failed:`, err?.message || err);
+                return null;
+              }).finally(() => {
+                running.delete(promise);
+                completedCount++;
+                const dataForScore = (function() {
+                  switch(task.id) {
+                    case 'cicd': return cicd; case 'reviews': return reviews; case 'deps': return deps;
+                    case 'quality': return quality; case 'flow': return flow; case 'environment': return environment;
+                    case 'branchHealth': return branchHealth; case 'busFactor': return busFactor;
+                    case 'security': return security; case 'commitHygiene': return commitHygiene;
+                    default: return null;
+                  }
+                })();
+                const score = dataForScore ? scoreFunctions[task.id]?.(dataForScore) || 50 : 50;
+                send('module_complete', { module: task.id, score, status: 'complete' });
+              });
+              running.add(promise);
+              results.push(promise);
+            }
+            if (running.size > 0) await Promise.race(running);
+          }
+          return Promise.allSettled(results);
+        }
+
+        await processQueue();
+
+        // Debug: Log which modules returned data vs null
+        const moduleStatus = { cicd: !!cicd, reviews: !!reviews, deps: !!deps, heatmap: !!heatmap, necrosis: !!necrosis, quality: !!quality, flow: !!flow, environment: !!environment, branchHealth: !!branchHealth, busFactor: !!busFactor, security: !!security, commitHygiene: !!commitHygiene };
+        console.log('[DevMRI] Module results:', JSON.stringify(moduleStatus));
+
+        // 3. Final calculations and scores
         const cicdScore = cicd ? calculateCICDScore(cicd) : 50;
-        send('module_complete', { module: 'cicd', score: cicdScore, message: cicd ? `${cicd.totalRuns} runs analyzed, ${cicd.successRate}% success rate` : 'No CI/CD data found' });
-
-        // 3. Code Review scan
-        send('progress', { module: 'reviews', status: 'scanning', percent: 30, message: 'Scanning pull requests and reviews...' });
-        const reviews = await scanReviews(owner, repo, token);
         const reviewScore = reviews ? calculateReviewScore(reviews) : 50;
-        send('module_complete', { module: 'reviews', score: reviewScore, message: reviews ? `${reviews.totalPRsAnalyzed} PRs analyzed, ${reviews.medianReviewTimeHours}h median review` : 'No PR data found' });
-
-        // 4. Dependency scan
-        send('progress', { module: 'deps', status: 'scanning', percent: 55, message: 'Scanning dependencies and vulnerabilities...' });
-        const deps = await scanDependencies(owner, repo, token);
         const depScore = deps ? calculateDepScore(deps) : 50;
-        send('module_complete', { module: 'deps', score: depScore, message: deps ? `${deps.totalDeps} deps, ${deps.vulnerabilities.total} vulnerabilities` : 'No dependency files found' });
-
-        // 5. Heatmap scan (NEW)
-        send('progress', { module: 'heatmap', status: 'scanning', percent: 65, message: 'Mapping codebase friction hotspots...' });
-        const heatmap = await scanFrictionHeatmap(owner, repo, token);
-        send('progress', { module: 'heatmap', status: 'complete', percent: 70, message: heatmap ? `Mapped ${heatmap.hotspots.length} hotspots` : 'No heatmap data' });
-
-        // 6. Necrosis scan (ORPHANED CODE DETECTION)
-        send('progress', { module: 'necrosis', status: 'scanning', percent: 73, message: 'Scanning for orphaned/dead code...' });
-        const necrosis = await scanNecrosis(owner, repo, token);
-        send('progress', { module: 'necrosis', status: 'complete', percent: 76, message: necrosis ? `Found ${necrosis.orphanedFiles.length} potentially orphaned files` : 'No necrosis data' });
-
-        // 7. Track D: Code Quality
-        send('progress', { module: 'quality', status: 'scanning', percent: 78, message: 'Analyzing code quality and complexity...' });
-        const quality = await scanCodeQuality(owner, repo, token);
         const qualityScore = quality ? calculateQualityScore(quality) : 50;
-        send('module_complete', { module: 'quality', score: qualityScore, message: quality ? `Avg ${quality.avgLinesPerFile} lines/file, ${quality.totalFiles} files` : 'Quality scan skipped' });
-
-        // 8. Track F: Developer Flow
-        send('progress', { module: 'flow', status: 'scanning', percent: 80, message: 'Analyzing developer flow and onboarding...' });
-        const flow = await scanDeveloperFlow(owner, repo, token);
         const flowScore = flow ? calculateFlowScore(flow) : 50;
-        send('module_complete', { module: 'flow', score: flowScore, message: flow ? `Setup time: ${flow.setupTimeEstimateMinutes}m, Onboarding friction: ${flow.onboardingFrictionScore}` : 'Flow scan skipped' });
-
-        // 9. Track H: Environment Integrity
-        send('progress', { module: 'environment', status: 'scanning', percent: 82, message: 'Analyzing environment integrity...' });
-        const environment = await scanEnvironmentIntegrity(owner, repo, token);
         const environmentScore = environment ? calculateEnvironmentScore(environment) : 50;
-        send('module_complete', { module: 'environment', score: environmentScore, message: environment ? `Reproducibility: ${environment.reproducibilityScore}%` : 'Env scan skipped' });
-
-        // 10. Branch Vascular Health
-        send('progress', { module: 'branchHealth', status: 'scanning', percent: 84, message: 'Scanning branch vascular health...' });
-        const branchHealth = await scanBranchHealth(owner, repo, repoMeta.defaultBranch, token);
         const branchHealthScore = branchHealth ? calculateBranchHealthScore(branchHealth) : 50;
-        send('module_complete', { module: 'branchHealth', score: branchHealthScore, message: branchHealth ? `${branchHealth.totalBranches} branches, ${branchHealth.staleBranches} stale, ${branchHealth.circulationEfficiency}% circulation` : 'Branch scan skipped' });
-
-        // 11. Sub-modules
-        send('progress', { module: 'sub', status: 'scanning', percent: 87, message: 'Running sub-module analysis...' });
-
-        const [busFactor, security, commitHygiene] = await Promise.all([
-          scanBusFactor(owner, repo, token),
-          scanSecurity(owner, repo, repoMeta.defaultBranch, token),
-          scanCommitHygiene(owner, repo, token),
-        ]);
-
         const securityScore = security ? calculateSecurityScore(security) : 50;
         if (security) security.score = securityScore;
         const hygieneScore = commitHygiene ? calculateCommitHygieneScore(commitHygiene) : 50;
         if (commitHygiene) commitHygiene.score = hygieneScore;
         const busFactorScore = busFactor ? calculateBusFactorScore(busFactor.busFactor) : 50;
-
         send('progress', { module: 'sub', status: 'complete', percent: 88, message: `Bus Factor: ${busFactor?.busFactor || '?'}` });
 
         // 11. Calculate scores
@@ -172,7 +199,8 @@ export async function GET(req: NextRequest) {
           environment: environmentScore,
           branchHealth: branchHealthScore,
         };
-        const { score: dxScore, grade, percentile } = calculateDXScore(scores);
+        const { score: dxScore, grade, percentile } = calculateDXScore(scores, repoMeta.docStalenessFactor);
+        console.log('[DevMRI] Module scores:', JSON.stringify(scores), '| DX:', dxScore, 'Grade:', grade);
 
         // 8. DORA metrics
         const dora = calculateDORA(cicd, reviews);
@@ -230,10 +258,11 @@ export async function GET(req: NextRequest) {
             { 
               headers: {
                 'User-Agent': 'DevMRI-App',
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                'Authorization': `Bearer ${token || getNextGithubToken()}`
               } 
             }
           ).then(r => r.json());
+
             workflowRuns = runsData.workflow_runs || [];
           } catch { /* GitHub API unavailable */ }
 
