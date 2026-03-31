@@ -24,13 +24,14 @@ import {
 // ═══════════════════════════════════════
 
 export async function getRepoMetadata(owner: string, repo: string, token?: string): Promise<RepoMetadata> {
-  const octokit = createOctokit(token);
-  // Retry on ECONNRESET — GitHub sometimes drops the first connection for large repos
+  // Retry on ECONNRESET/401 — GitHub sometimes drops the first connection for large repos
   const { data } = await withRetry(
-    () => octokit.repos.get({ owner, repo }),
+    (retryOctokit) => retryOctokit.repos.get({ owner, repo }),
     3,
     `repos.get(${owner}/${repo})`
   );
+  // Use the initial octokit for subsequent calls (token may have been passed explicitly)
+  const octokit = createOctokit(token);
   
   // Calculate staleness — comparing last commit to README.md vs last commit to /src
   let staleness = 0;
